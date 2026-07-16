@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '../api/client'
 
 interface WaMensaje {
@@ -14,6 +14,8 @@ interface WaMensaje {
 
 export default function WhatsAppPanel() {
   const [selectedFrom, setSelectedFrom] = useState<string | null>(null)
+  const [texto, setTexto] = useState('')
+  const queryClient = useQueryClient()
 
   const { data: mensajes = [], isLoading } = useQuery<WaMensaje[]>({
     queryKey: ['wa-mensajes'],
@@ -37,6 +39,17 @@ export default function WhatsAppPanel() {
   const conversacionActual = selectedFrom
     ? mensajes.filter(m => m.whatsappFrom === selectedFrom)
     : []
+
+  async function enviar() {
+    if (!texto.trim() || !selectedFrom) return
+    try {
+      await api.post('/wa-mensajes/enviar', { to: selectedFrom, texto })
+      setTexto('')
+      queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
+    } catch (e) {
+      console.error('Error enviando mensaje', e)
+    }
+  }
 
   if (isLoading) return <div className="loading">Cargando...</div>
 
@@ -95,8 +108,13 @@ export default function WhatsAppPanel() {
                 ))}
               </div>
               <div className="wa-conversation-input">
-                <input placeholder="Escribe un mensaje..." />
-                <button className="btn btn-primary btn-sm">Enviar</button>
+                <input
+                  placeholder="Escribe un mensaje..."
+                  value={texto}
+                  onChange={e => setTexto(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') enviar() }}
+                />
+                <button className="btn btn-primary btn-sm" onClick={enviar}>Enviar</button>
               </div>
             </>
           ) : (
