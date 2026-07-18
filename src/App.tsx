@@ -43,6 +43,20 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+        {/* Bottom nav for mobile */}
+        <nav className="bottom-nav">
+          {nav.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) => `bottom-nav-link ${isActive ? 'active' : ''}`}
+            >
+              <span className="bottom-nav-icon">{item.icon}</span>
+              <span className="bottom-nav-label">{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
       </div>
     </BrowserRouter>
   )
