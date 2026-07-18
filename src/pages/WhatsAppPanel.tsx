@@ -125,7 +125,7 @@ export default function WhatsAppPanel() {
 
       <div className="wa-panel">
         {/* Sidebar */}
-        <div className="wa-sidebar">
+        <div className={`wa-sidebar ${selectedFrom ? 'mobile-hidden' : ''}`}>
           {conversaciones.length === 0 ? (
             <div className="empty-state" style={{ padding: 40 }}>
               <div className="empty-icon">💬</div>
@@ -156,10 +156,11 @@ export default function WhatsAppPanel() {
         </div>
 
         {/* Conversación */}
-        <div className="wa-conversation">
+        <div className={`wa-conversation ${selectedFrom ? '' : 'mobile-hidden'}`}>
           {selectedFrom ? (
             <>
               <div className="wa-conversation-header">
+                <button className="wa-back-btn" onClick={() => setSelectedFrom(null)}>←</button>
                 {conversacionActual.find(m => m.cliente)?.cliente?.nombre || selectedFrom}
               </div>
               <div className="wa-conversation-body">
