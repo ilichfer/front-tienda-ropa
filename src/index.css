@@ -615,6 +615,7 @@ tr:hover td { background: #f8f9fa; }
   }
   .wa-panel {
     grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
     flex: 1;
     min-height: 0;
     gap: 0;
