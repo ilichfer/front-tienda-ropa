@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import Pedidos from './pages/Pedidos'
 import Dashboard from './pages/Dashboard'
@@ -12,6 +13,8 @@ const nav = [
 ]
 
 export default function App() {
+  const [menuOpen, setMenuOpen] = useState(false)
+
   return (
     <BrowserRouter>
       <div className="app-layout">
@@ -43,20 +46,28 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
-        {/* Bottom nav for mobile */}
-        <nav className="bottom-nav">
-          {nav.map(item => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) => `bottom-nav-link ${isActive ? 'active' : ''}`}
-            >
-              <span className="bottom-nav-icon">{item.icon}</span>
-              <span className="bottom-nav-label">{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
+        {/* Hamburger button + dropdown menu (mobile) */}
+        <button className="mobile-menu-btn" onClick={() => setMenuOpen(o => !o)}>
+          {menuOpen ? '✕' : '☰'}
+        </button>
+        {menuOpen && (
+          <div className="mobile-menu-overlay" onClick={() => setMenuOpen(false)}>
+            <nav className="mobile-menu" onClick={e => e.stopPropagation()}>
+              {nav.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  className={({ isActive }) => `mobile-menu-link ${isActive ? 'active' : ''}`}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <span className="mobile-menu-icon">{item.icon}</span>
+                  {item.label}
+                </NavLink>
+              ))}
+            </nav>
+          </div>
+        )}
       </div>
     </BrowserRouter>
   )
