@@ -610,11 +610,13 @@ tr:hover td { background: #f8f9fa; }
   .main-content {
     padding: 16px;
     padding-bottom: calc(16px + 56px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
   }
   .wa-panel {
     grid-template-columns: 1fr;
-    height: calc(100vh - 236px);
-    height: calc(100dvh - 236px);
+    flex: 1;
+    min-height: 0;
     gap: 0;
   }
   .wa-sidebar {
