@@ -613,7 +613,8 @@ tr:hover td { background: #f8f9fa; }
   }
   .wa-panel {
     grid-template-columns: 1fr;
-    height: calc(100vh - 180px);
+    height: calc(100vh - 236px);
+    height: calc(100dvh - 236px);
     gap: 0;
   }
   .wa-sidebar {
