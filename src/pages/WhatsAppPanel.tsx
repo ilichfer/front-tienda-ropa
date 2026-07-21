@@ -79,6 +79,9 @@ export default function WhatsAppPanel() {
   const [selectedFrom, setSelectedFrom] = useState<string | null>(null)
   const [texto, setTexto] = useState('')
   const [modalImg, setModalImg] = useState<string | null>(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [editandoNombre, setEditandoNombre] = useState('')
+  const [nombreInput, setNombreInput] = useState('')
   const queryClient = useQueryClient()
 
   const { data: mensajes = [], isLoading } = useQuery<WaMensaje[]>({
@@ -100,6 +103,15 @@ export default function WhatsAppPanel() {
     noLeidos: msgs.filter(m => m.direccion === 'ENTRADA').length,
   }))
 
+  const conversacionesFiltradas = busqueda.trim()
+    ? conversaciones.filter(c => {
+        const nombre = (c.cliente?.nombre || '').toLowerCase()
+        const num = c.from.toLowerCase()
+        const q = busqueda.toLowerCase()
+        return nombre.includes(q) || num.includes(q)
+      })
+    : conversaciones
+
   const conversacionActual = selectedFrom
     ? mensajes.filter(m => m.whatsappFrom === selectedFrom)
     : []
@@ -115,6 +127,23 @@ export default function WhatsAppPanel() {
     }
   }
 
+  async function guardarNombre(whatsappFrom: string) {
+    if (!nombreInput.trim()) return
+    try {
+      await api.put('/wa-mensajes/cliente', { whatsappFrom, nombre: nombreInput.trim() })
+      setEditandoNombre('')
+      setNombreInput('')
+      queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
+    } catch (e) {
+      console.error('Error guardando nombre', e)
+    }
+  }
+
+  function iniciarEdicion(whatsappFrom: string, nombreActual: string) {
+    setEditandoNombre(whatsappFrom)
+    setNombreInput(nombreActual)
+  }
+
   if (isLoading) return <div className="loading">Cargando...</div>
 
   return (
@@ -126,13 +155,25 @@ export default function WhatsAppPanel() {
       <div className="wa-panel">
         {/* Sidebar */}
         <div className={`wa-sidebar ${selectedFrom ? 'mobile-hidden' : ''}`}>
-          {conversaciones.length === 0 ? (
+          {/* Search input */}
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+            <input
+              placeholder="Buscar por nombre o número..."
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+              style={{
+                width: '100%', padding: '8px 12px', borderRadius: 20,
+                border: '1px solid var(--border)', fontSize: 13, outline: 'none',
+              }}
+            />
+          </div>
+          {conversacionesFiltradas.length === 0 ? (
             <div className="empty-state" style={{ padding: 40 }}>
               <div className="empty-icon">💬</div>
-              <p>No hay mensajes aún</p>
+              <p>{busqueda ? 'Sin resultados' : 'No hay mensajes aún'}</p>
             </div>
           ) : (
-            conversaciones.map(conv => (
+            conversacionesFiltradas.map(conv => (
               <div
                 key={conv.from}
                 onClick={() => setSelectedFrom(conv.from)}
@@ -144,7 +185,9 @@ export default function WhatsAppPanel() {
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  {conv.cliente?.nombre || conv.from}
+                  {conv.cliente?.nombre || (
+                    <span style={{ color: 'var(--text-muted)' }}>{conv.from}</span>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                   {icono(conv.ultimo?.tipo || '')}
@@ -161,7 +204,38 @@ export default function WhatsAppPanel() {
             <>
               <div className="wa-conversation-header">
                 <button className="wa-back-btn" onClick={() => setSelectedFrom(null)}>←</button>
-                {conversacionActual.find(m => m.cliente)?.cliente?.nombre || selectedFrom}
+                {editandoNombre === selectedFrom ? (
+                  <input
+                    autoFocus
+                    value={nombreInput}
+                    onChange={e => setNombreInput(e.target.value)}
+                    onBlur={() => guardarNombre(selectedFrom!)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') guardarNombre(selectedFrom!)
+                      if (e.key === 'Escape') setEditandoNombre('')
+                    }}
+                    style={{
+                      flex: 1, padding: '4px 8px', borderRadius: 6,
+                      border: '1px solid var(--primary)', fontSize: 14, outline: 'none',
+                    }}
+                  />
+                ) : (
+                  <>
+                    <span style={{ flex: 1 }}>
+                      {conversacionActual.find(m => m.cliente)?.cliente?.nombre || (
+                        <span style={{ color: 'var(--text-muted)' }}>{selectedFrom}</span>
+                      )}
+                    </span>
+                    <button
+                      className="wa-edit-btn"
+                      onClick={() => iniciarEdicion(
+                        selectedFrom!,
+                        conversacionActual.find(m => m.cliente)?.cliente?.nombre || ''
+                      )}
+                      title="Editar nombre"
+                    >✏️</button>
+                  </>
+                )}
               </div>
               <div className="wa-conversation-body">
                 {conversacionActual.map(m => (
