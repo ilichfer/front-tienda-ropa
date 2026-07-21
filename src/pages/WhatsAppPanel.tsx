@@ -11,10 +11,17 @@ interface WaMensaje {
   createdAt: string
   cliente?: { nombre: string }
   mediaId?: string
+  mediaPath?: string
   mimeType?: string
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
+
+function mediaUrl(m: WaMensaje): string | null {
+  if (m.mediaPath) return `${API_BASE}/media/local/${m.mediaPath}`
+  if (m.mediaId) return `${API_BASE}/media/${m.mediaId}`
+  return null
+}
 
 function icono(tipo: string) {
   switch (true) {
@@ -42,14 +49,15 @@ function etiqueta(m: WaMensaje) {
 
 function Bubble({ m, onImgClick }: { m: WaMensaje, onImgClick: (url: string) => void }) {
   const [imgError, setImgError] = useState(false)
+  const url = mediaUrl(m)
 
-  if (m.tipo === 'image' && m.mediaId && !imgError) {
+  if (m.tipo === 'image' && url && !imgError) {
     return (
       <div className={`wa-bubble ${m.direccion === 'ENTRADA' ? 'in' : 'out'}`}>
         <img
-          src={`${API_BASE}/media/${m.mediaId}`}
+          src={url}
           alt={m.contenido}
-          onClick={() => onImgClick(`${API_BASE}/media/${m.mediaId}`)}
+          onClick={() => onImgClick(url)}
           onError={() => setImgError(true)}
           style={{ maxWidth: 200, borderRadius: 8, cursor: 'pointer', display: 'block' }}
         />
@@ -64,10 +72,10 @@ function Bubble({ m, onImgClick }: { m: WaMensaje, onImgClick: (url: string) => 
   return (
     <div className={`wa-bubble ${m.direccion === 'ENTRADA' ? 'in' : 'out'}`}>
       {m.tipo === 'image' ? <span>🖼️ {m.contenido}</span> :
-       m.tipo === 'audio' && m.mediaId ? <audio controls src={`${API_BASE}/media/${m.mediaId}`} style={{ maxWidth: 250 }} /> :
-       m.tipo === 'video' && m.mediaId ? <video controls src={`${API_BASE}/media/${m.mediaId}`} style={{ maxWidth: 250, borderRadius: 8 }} /> :
-       m.tipo === 'sticker' && m.mediaId ? <img src={`${API_BASE}/media/${m.mediaId}`} alt="sticker" style={{ maxWidth: 120, display: 'block' }} /> :
-       m.tipo === 'document' && m.mediaId ? <a href={`${API_BASE}/media/${m.mediaId}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>📄 {m.contenido.startsWith('[') ? 'Abrir documento' : m.contenido}</a> :
+       m.tipo === 'audio' && url ? <audio controls src={url} style={{ maxWidth: 250 }} /> :
+       m.tipo === 'video' && url ? <video controls src={url} style={{ maxWidth: 250, borderRadius: 8 }} /> :
+       m.tipo === 'sticker' && url ? <img src={url} alt="sticker" style={{ maxWidth: 120, display: 'block' }} /> :
+       m.tipo === 'document' && url ? <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>📄 {m.contenido.startsWith('[') ? 'Abrir documento' : m.contenido}</a> :
        m.tipo === 'location' ? <span>📍 {m.contenido}</span> :
        <span>{icono(m.tipo)}{m.contenido}</span>}
       <span className="wa-time">{new Date(m.createdAt).toLocaleString('es-CO')}</span>
