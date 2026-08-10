@@ -31,7 +31,9 @@ function icono(tipo: string) {
     case tipo === 'document': return '📄 '
     case tipo === 'sticker':  return '🎨 '
     case tipo === 'location': return '📍 '
+    case tipo === 'list': return '📋 '
     case tipo.startsWith('button_'): return '🔘 '
+    case tipo.startsWith('list_'): return '📋 '
     default: return ''
   }
 }
@@ -43,6 +45,8 @@ function etiqueta(m: WaMensaje) {
   if (m.tipo === 'sticker')  return '🎨 Sticker'
   if (m.tipo === 'document') return '📄 ' + (m.contenido.startsWith('[') ? 'Documento' : m.contenido)
   if (m.tipo === 'location') return m.contenido
+  if (m.tipo === 'list') return '📋 ' + m.contenido
+  if (m.tipo.startsWith('list_')) return '📋 ' + m.contenido
   if (m.tipo.startsWith('button_')) return '🔘 ' + m.contenido
   return m.contenido
 }
