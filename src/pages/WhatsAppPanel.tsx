@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '../api/client'
 
@@ -94,6 +94,7 @@ export default function WhatsAppPanel() {
   const [busqueda, setBusqueda] = useState('')
   const [editandoNombre, setEditandoNombre] = useState('')
   const [nombreInput, setNombreInput] = useState('')
+  const bodyRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
 
   const { data: mensajes = [], isLoading } = useQuery<WaMensaje[]>({
@@ -125,8 +126,12 @@ export default function WhatsAppPanel() {
     : conversaciones
 
   const conversacionActual = selectedFrom
-    ? mensajes.filter(m => m.whatsappFrom === selectedFrom)
+    ? [...mensajes.filter(m => m.whatsappFrom === selectedFrom)].reverse()
     : []
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 'smooth' })
+  }, [selectedFrom, conversacionActual.length])
 
   async function enviar() {
     if (!texto.trim() || !selectedFrom) return
@@ -249,7 +254,7 @@ export default function WhatsAppPanel() {
                   </>
                 )}
               </div>
-              <div className="wa-conversation-body">
+              <div className="wa-conversation-body" ref={bodyRef}>
                 {conversacionActual.map(m => (
                   <Bubble key={m.id} m={m} onImgClick={url => setModalImg(url)} />
                 ))}
