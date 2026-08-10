@@ -237,7 +237,7 @@ export default function Cuentas() {
                                   <tr key={m.id}>
                                     <td>{m.tipo === 'CARGO' ? '🛍️ Cargo' : '💸 Abono'}</td>
                                     <td>
-                                      {m.tipo === 'CARGO' && mediaUrl(m) ? (
+                                      {mediaUrl(m) ? (
                                         <a href={mediaUrl(m)!} target="_blank" rel="noopener noreferrer">🖼️ </a>
                                       ) : null}
                                       {m.concepto || (m.tipo === 'ABONO' ? (m.metodo || 'Pago') : 'Pedido')}
