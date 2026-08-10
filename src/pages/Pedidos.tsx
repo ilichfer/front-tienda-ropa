@@ -149,7 +149,9 @@ export default function Pedidos() {
                 <div className="pedido-header">
                   <div>
                     <span className="pedido-num">#{pedido.numero}</span>
-                    <span className="pedido-nombre">{pedido.cliente.nombre}</span>
+                    <span className="pedido-nombre">
+                      {pedido.cliente?.nombre || pedido.nombreDueño || 'Sin cliente'}
+                    </span>
                   </div>
                   <span className={`badge badge-${pedido.estado.toLowerCase()}`}>
                     {pedido.estado}
@@ -157,14 +159,24 @@ export default function Pedidos() {
                 </div>
 
                 <div className="pedido-meta">
-                  <span>👕 {pedido.prenda.nombre} – {pedido.prenda.talla}</span>
-                  <span>📦 {pedido.prenda.lote.nombre}</span>
-                  <span>💵 ${pedido.total?.toLocaleString('es-CO')}</span>
+                  {pedido.prenda ? (
+                    <>
+                      <span>👕 {pedido.prenda.nombre} – {pedido.prenda.talla}</span>
+                      <span>📦 {pedido.prenda.lote?.nombre}</span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {pedido.ubicacion ? `📍 ${pedido.ubicacion}` : 'Pedido en bodega (sin prenda asignada)'}
+                    </span>
+                  )}
+                  {pedido.total ? (
+                    <span>💵 ${pedido.total.toLocaleString('es-CO')}</span>
+                  ) : null}
                   {pedido.numeroGuia && <span>🚚 Guía: {pedido.numeroGuia}</span>}
                 </div>
 
                 <div className="pedido-actions">
-                  {SIGUIENTE_ESTADO[pedido.estado] && (
+                  {SIGUIENTE_ESTADO[pedido.estado] && pedido.cliente && (
                     <button
                       className="btn-primary"
                       disabled={isPending}
@@ -173,14 +185,16 @@ export default function Pedidos() {
                       {LABEL_ACCION[pedido.estado]}
                     </button>
                   )}
-                  <button
-                    className="btn-secondary"
-                    onClick={() => window.open(
-                      `https://wa.me/${pedido.cliente.whatsapp}`, '_blank'
-                    )}
-                  >
-                    WhatsApp
-                  </button>
+                  {pedido.cliente && (
+                    <button
+                      className="btn-secondary"
+                      onClick={() => window.open(
+                        `https://wa.me/${pedido.cliente?.whatsapp}`, '_blank'
+                      )}
+                    >
+                      WhatsApp
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
