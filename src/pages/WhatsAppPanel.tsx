@@ -13,6 +13,7 @@ interface WaMensaje {
   mediaId?: string
   mediaPath?: string
   mimeType?: string
+  leido?: boolean
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -112,8 +113,8 @@ export default function WhatsAppPanel() {
   ).map(([from, msgs]) => ({
     from,
     cliente: msgs.find(m => m.cliente)?.cliente,
-    ultimo: msgs[msgs.length - 1],
-    noLeidos: msgs.filter(m => m.direccion === 'ENTRADA').length,
+    ultimo: msgs[0],
+    noLeidos: msgs.filter(m => m.direccion === 'ENTRADA' && !m.leido).length,
   }))
 
   const conversacionesFiltradas = busqueda.trim()
@@ -132,6 +133,13 @@ export default function WhatsAppPanel() {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 'smooth' })
   }, [selectedFrom, conversacionActual.length])
+
+  useEffect(() => {
+    if (!selectedFrom) return
+    api.post('/wa-mensajes/leer', { whatsappFrom: selectedFrom })
+      .catch(() => {})
+      .finally(() => queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] }))
+  }, [selectedFrom, mensajes.length])
 
   async function enviar() {
     if (!texto.trim() || !selectedFrom) return
@@ -198,18 +206,34 @@ export default function WhatsAppPanel() {
                   padding: '12px 16px',
                   cursor: 'pointer',
                   borderBottom: '1px solid var(--border)',
-                  background: selectedFrom === conv.from ? '#f0f2f5' : undefined,
+                  background: selectedFrom === conv.from ? '#f0f2f5' : conv.noLeidos > 0 ? '#eef7ee' : undefined,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  {conv.cliente?.nombre || (
-                    <span style={{ color: 'var(--text-muted)' }}>{conv.from}</span>
-                  )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: conv.noLeidos > 0 ? 700 : 600, fontSize: 14 }}>
+                    {conv.cliente?.nombre || (
+                      <span style={{ color: 'var(--text-muted)' }}>{conv.from}</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {icono(conv.ultimo?.tipo || '')}
+                    {etiqueta(conv.ultimo!).slice(0, 60)}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {icono(conv.ultimo?.tipo || '')}
-                  {etiqueta(conv.ultimo!).slice(0, 60)}
-                </div>
+                {conv.noLeidos > 0 && (
+                  <div style={{
+                    minWidth: 22, height: 22, borderRadius: 11,
+                    background: 'var(--primary)', color: '#fff',
+                    fontSize: 12, fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '0 6px',
+                  }}>
+                    {conv.noLeidos}
+                  </div>
+                )}
               </div>
             ))
           )}
