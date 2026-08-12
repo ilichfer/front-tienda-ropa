@@ -186,7 +186,7 @@ export default function WhatsAppPanel() {
 
       <div className="wa-panel">
         {/* Sidebar */}
-        <div className={`wa-sidebar ${selectedFrom ? 'mobile-hidden' : ''}`}>
+        <div className="wa-sidebar">
           {/* Search input */}
           <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
             <input
