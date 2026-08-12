@@ -96,6 +96,7 @@ export default function WhatsAppPanel() {
   const [editandoNombre, setEditandoNombre] = useState('')
   const [nombreInput, setNombreInput] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
   const { data: mensajes = [], isLoading } = useQuery<WaMensaje[]>({
@@ -136,6 +137,11 @@ export default function WhatsAppPanel() {
 
   useEffect(() => {
     if (!selectedFrom) return
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }, [selectedFrom])
+
+  useEffect(() => {
+    if (!selectedFrom) return
     api.post('/wa-mensajes/leer', { whatsappFrom: selectedFrom })
       .catch(() => {})
       .finally(() => queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] }))
@@ -147,6 +153,7 @@ export default function WhatsAppPanel() {
       await api.post('/wa-mensajes/enviar', { to: selectedFrom, texto })
       setTexto('')
       queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
+      inputRef.current?.focus()
     } catch (e) {
       console.error('Error enviando mensaje', e)
     }
@@ -283,8 +290,14 @@ export default function WhatsAppPanel() {
                   <Bubble key={m.id} m={m} onImgClick={url => setModalImg(url)} />
                 ))}
               </div>
+              <button
+                className="wa-jump-bottom"
+                title="Ir al último mensaje"
+                onClick={() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 'smooth' })}
+              >⬇️</button>
               <div className="wa-conversation-input">
                 <input
+                  ref={inputRef}
                   placeholder="Escribe un mensaje..."
                   value={texto}
                   onChange={e => setTexto(e.target.value)}
