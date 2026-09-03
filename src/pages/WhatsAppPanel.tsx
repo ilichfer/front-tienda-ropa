@@ -20,6 +20,8 @@ interface WaMensaje {
   mediaPath?: string
   mimeType?: string
   leido?: boolean
+  waMessageId?: string
+  contextWaMessageId?: string
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -58,13 +60,55 @@ function etiqueta(m: WaMensaje) {
   return m.contenido
 }
 
-function Bubble({ m, onImgClick }: { m: WaMensaje, onImgClick: (url: string) => void }) {
+// Vista previa del mensaje citado (arriba de la burbuja), igual que "Responder" en WhatsApp
+// Web. Se resuelve por wa_message_id contra los mensajes ya cargados de la conversación — si
+// el mensaje original no está en la lista (poco probable, pero por ejemplo si se borró la
+// conversación y luego llegó algo referenciándolo) simplemente no se muestra nada.
+function Cita({ citado, onClick }: { citado: WaMensaje, onClick: () => void }) {
+  const url = mediaUrl(citado)
+  return (
+    <div className="wa-quote" onClick={onClick}>
+      <div className="wa-quote-autor">{citado.direccion === 'ENTRADA' ? '📥 Cliente' : '📤 Tú'}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {citado.tipo === 'image' && url && (
+          <img src={url} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+        )}
+        <div className="wa-quote-texto">{icono(citado.tipo)}{etiqueta(citado).slice(0, 80)}</div>
+      </div>
+    </div>
+  )
+}
+
+function Bubble({ m, onImgClick, onReply, mensajesPorWaId }: {
+  m: WaMensaje
+  onImgClick: (url: string) => void
+  onReply: (m: WaMensaje) => void
+  mensajesPorWaId: Map<string, WaMensaje>
+}) {
   const [imgError, setImgError] = useState(false)
   const url = mediaUrl(m)
+  const citado = m.contextWaMessageId ? mensajesPorWaId.get(m.contextWaMessageId) : undefined
+  const esEntrada = m.direccion === 'ENTRADA'
 
+  function irAlCitado() {
+    if (!citado) return
+    const el = document.getElementById(`msg-${citado.id}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  const botonResponder = m.waMessageId && (
+    <button
+      className="wa-reply-btn"
+      title="Responder citando este mensaje"
+      onClick={() => onReply(m)}
+    >↩️</button>
+  )
+
+  let contenidoBubble
   if (m.tipo === 'image' && url && !imgError) {
-    return (
-      <div className={`wa-bubble ${m.direccion === 'ENTRADA' ? 'in' : 'out'}`}>
+    contenidoBubble = (
+      <div id={`msg-${m.id}`} className={`wa-bubble ${esEntrada ? 'in' : 'out'}`}>
+        {citado && <Cita citado={citado} onClick={irAlCitado} />}
         <img
           src={url}
           alt={m.contenido}
@@ -78,18 +122,27 @@ function Bubble({ m, onImgClick }: { m: WaMensaje, onImgClick: (url: string) => 
         <span className="wa-time">{new Date(m.createdAt).toLocaleString('es-CO')}</span>
       </div>
     )
+  } else {
+    contenidoBubble = (
+      <div id={`msg-${m.id}`} className={`wa-bubble ${esEntrada ? 'in' : 'out'}`}>
+        {citado && <Cita citado={citado} onClick={irAlCitado} />}
+        {m.tipo === 'image' ? <span>🖼️ {m.contenido}</span> :
+         m.tipo === 'audio' && url ? <audio controls src={url} style={{ maxWidth: 250 }} /> :
+         m.tipo === 'video' && url ? <video controls src={url} style={{ maxWidth: 250, borderRadius: 8 }} /> :
+         m.tipo === 'sticker' && url ? <img src={url} alt="sticker" style={{ maxWidth: 120, display: 'block' }} /> :
+         m.tipo === 'document' && url ? <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>📄 {m.contenido.startsWith('[') ? 'Abrir documento' : m.contenido}</a> :
+         m.tipo === 'location' ? <span>📍 {m.contenido}</span> :
+         <span>{icono(m.tipo)}{m.contenido}</span>}
+        <span className="wa-time">{new Date(m.createdAt).toLocaleString('es-CO')}</span>
+      </div>
+    )
   }
 
   return (
-    <div className={`wa-bubble ${m.direccion === 'ENTRADA' ? 'in' : 'out'}`}>
-      {m.tipo === 'image' ? <span>🖼️ {m.contenido}</span> :
-       m.tipo === 'audio' && url ? <audio controls src={url} style={{ maxWidth: 250 }} /> :
-       m.tipo === 'video' && url ? <video controls src={url} style={{ maxWidth: 250, borderRadius: 8 }} /> :
-       m.tipo === 'sticker' && url ? <img src={url} alt="sticker" style={{ maxWidth: 120, display: 'block' }} /> :
-       m.tipo === 'document' && url ? <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>📄 {m.contenido.startsWith('[') ? 'Abrir documento' : m.contenido}</a> :
-       m.tipo === 'location' ? <span>📍 {m.contenido}</span> :
-       <span>{icono(m.tipo)}{m.contenido}</span>}
-      <span className="wa-time">{new Date(m.createdAt).toLocaleString('es-CO')}</span>
+    <div className={`wa-bubble-row ${esEntrada ? 'in' : 'out'}`}>
+      {!esEntrada && botonResponder}
+      {contenidoBubble}
+      {esEntrada && botonResponder}
     </div>
   )
 }
@@ -98,6 +151,7 @@ export default function WhatsAppPanel() {
   const [searchParams] = useSearchParams()
   const [selectedFrom, setSelectedFrom] = useState<string | null>(() => searchParams.get('from'))
   const [texto, setTexto] = useState('')
+  const [replyTo, setReplyTo] = useState<WaMensaje | null>(null)
   const [modalImg, setModalImg] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [editandoNombre, setEditandoNombre] = useState('')
@@ -155,6 +209,18 @@ export default function WhatsAppPanel() {
 
   const convActualInfo = selectedFrom ? conversaciones.find(c => c.from === selectedFrom) : undefined
 
+  // Para resolver rápido, por wa_message_id, a qué mensaje se refiere una cita — tanto la que
+  // se muestra dentro de una burbuja como la del mensaje que se está por responder.
+  const mensajesPorWaId = new Map<string, WaMensaje>()
+  conversacionActual.forEach(m => {
+    if (m.waMessageId) mensajesPorWaId.set(m.waMessageId, m)
+  })
+
+  // Al cambiar de conversación, cualquier respuesta que se estuviera armando ya no aplica.
+  useEffect(() => {
+    setReplyTo(null)
+  }, [selectedFrom])
+
   useEffect(() => {
     const from = searchParams.get('from')
     if (from) setSelectedFrom(from)
@@ -193,13 +259,27 @@ export default function WhatsAppPanel() {
   async function enviar() {
     if (!texto.trim() || !selectedFrom) return
     try {
-      await api.post('/wa-mensajes/enviar', { to: selectedFrom, texto })
+      await api.post('/wa-mensajes/enviar', {
+        to: selectedFrom,
+        texto,
+        ...(replyTo?.waMessageId ? { replyToWaMessageId: replyTo.waMessageId } : {}),
+      })
       setTexto('')
+      setReplyTo(null)
       queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
       inputRef.current?.focus()
     } catch (e) {
       console.error('Error enviando mensaje', e)
     }
+  }
+
+  // Prepara el input para responder citando un mensaje puntual (como "Responder" en WhatsApp
+  // Web). Si el mensaje no tiene wa_message_id (no debería pasar, pero por si acaso) no hay
+  // nada que citar y se ignora.
+  function iniciarRespuesta(m: WaMensaje) {
+    if (!m.waMessageId) return
+    setReplyTo(m)
+    inputRef.current?.focus()
   }
 
   async function guardarNombre(whatsappFrom: string) {
@@ -486,7 +566,13 @@ export default function WhatsAppPanel() {
                 style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}
               >
                 {conversacionActual.map(m => (
-                  <Bubble key={m.id} m={m} onImgClick={url => setModalImg(url)} />
+                  <Bubble
+                    key={m.id}
+                    m={m}
+                    onImgClick={url => setModalImg(url)}
+                    onReply={iniciarRespuesta}
+                    mensajesPorWaId={mensajesPorWaId}
+                  />
                 ))}
               </div>
               <button
@@ -495,12 +581,35 @@ export default function WhatsAppPanel() {
                 onClick={() => bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: 'smooth' })}
               >⬇️</button>
               <div className="wa-conversation-input" style={{ flexShrink: 0 }}>
+                {replyTo && (
+                  <div className="wa-reply-preview">
+                    <div style={{ flex: 1, minWidth: 0, borderLeft: '3px solid var(--primary)', paddingLeft: 8 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--primary)', fontSize: 12 }}>
+                        Respondiendo a {replyTo.direccion === 'ENTRADA' ? (convActualInfo?.cliente?.nombre || selectedFrom) : 'ti mismo'}
+                      </div>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: 13 }}>
+                        {icono(replyTo.tipo)}{etiqueta(replyTo).slice(0, 100)}
+                      </div>
+                    </div>
+                    {replyTo.tipo === 'image' && mediaUrl(replyTo) && (
+                      <img src={mediaUrl(replyTo)!} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                    )}
+                    <button
+                      onClick={() => setReplyTo(null)}
+                      title="Cancelar respuesta"
+                      style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16, color: 'var(--text-muted)', flexShrink: 0 }}
+                    >✕</button>
+                  </div>
+                )}
                 <input
                   ref={inputRef}
-                  placeholder="Escribe un mensaje..."
+                  placeholder={replyTo ? 'Escribe tu respuesta...' : 'Escribe un mensaje...'}
                   value={texto}
                   onChange={e => setTexto(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') enviar() }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') enviar()
+                    if (e.key === 'Escape' && replyTo) setReplyTo(null)
+                  }}
                 />
                 <button className="btn btn-primary btn-sm" onClick={enviar}>Enviar</button>
               </div>

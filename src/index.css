@@ -557,6 +557,79 @@ tr:hover td { background: #f8f9fa; }
   display: block;
 }
 
+/* ── Responder citando un mensaje (como "Responder" en WhatsApp Web) ───── */
+
+.wa-bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.wa-bubble-row.in {
+  justify-content: flex-start;
+}
+
+.wa-bubble-row.out {
+  justify-content: flex-end;
+}
+
+.wa-reply-btn {
+  opacity: 0;
+  transition: opacity .15s;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 6px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.wa-bubble-row:hover .wa-reply-btn {
+  opacity: 1;
+}
+
+.wa-quote {
+  border-left: 3px solid var(--primary);
+  background: rgba(0, 0, 0, .06);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wa-bubble.out .wa-quote {
+  background: rgba(255, 255, 255, .18);
+  border-left-color: rgba(255, 255, 255, .7);
+}
+
+.wa-quote-autor {
+  font-weight: 700;
+  margin-bottom: 1px;
+}
+
+.wa-quote-texto {
+  opacity: .85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-reply-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
 .wa-conversation-input {
   display: flex;
   gap: 8px;
