@@ -33,6 +33,13 @@ interface Pedido {
   ubicacion?: string
 }
 
+// Mismo shape que usa WhatsAppPanel.tsx para listar los chats existentes: solo
+// necesitamos el número (whatsappFrom) y, si ya tiene, el nombre del cliente.
+interface WaMensaje {
+  whatsappFrom: string
+  cliente?: { nombre: string } | null
+}
+
 export default function Bodega() {
   const qc = useQueryClient()
   const [showPedidoForm, setShowPedidoForm] = useState(false)
@@ -40,7 +47,7 @@ export default function Bodega() {
   const [loteSeleccionado, setLoteSeleccionado] = useState<string | null>(null)
   const [nuevaPrenda, setNuevaPrenda] = useState({ nombre: '', talla: '', color: '', precio: 0 })
   const [busqueda, setBusqueda] = useState('')
-  const [pedidoNombre, setPedidoNombre] = useState('')
+  const [pedidoWhatsapp, setPedidoWhatsapp] = useState('')
   const [pedidoUbicacion, setPedidoUbicacion] = useState('')
 
   const { data: lotes = [], isLoading } = useQuery<Lote[]>({
@@ -59,15 +66,32 @@ export default function Bodega() {
     queryFn: () => api.get('/pedidos').then(r => r.data),
   })
 
+  // Chats existentes de WhatsApp, para el desplegable de "Nombre" del modal de
+  // Agregar Pedido — así el pedido queda atado a un chat real en vez de texto libre.
+  const { data: mensajes = [] } = useQuery<WaMensaje[]>({
+    queryKey: ['wa-mensajes'],
+    queryFn: () => api.get('/wa-mensajes').then(r => r.data).catch(() => [] as WaMensaje[]),
+  })
+
+  const chats = Array.from(
+    mensajes.reduce((acc, m) => {
+      if (!acc.has(m.whatsappFrom)) acc.set(m.whatsappFrom, m.cliente?.nombre || undefined)
+      else if (!acc.get(m.whatsappFrom) && m.cliente?.nombre) acc.set(m.whatsappFrom, m.cliente.nombre)
+      return acc
+    }, new Map<string, string | undefined>())
+  )
+    .map(([whatsapp, nombre]) => ({ whatsapp, nombre }))
+    .sort((a, b) => (a.nombre || a.whatsapp).localeCompare(b.nombre || b.whatsapp))
+
   const guardarPedido = useMutation({
     mutationFn: () => api.post('/pedidos/bodega', {
-      nombre: pedidoNombre,
+      whatsapp: pedidoWhatsapp,
       ubicacion: pedidoUbicacion,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pedidos'] })
       setShowPedidoForm(false)
-      setPedidoNombre('')
+      setPedidoWhatsapp('')
       setPedidoUbicacion('')
     },
   })
@@ -125,7 +149,7 @@ export default function Bodega() {
             <tbody>
               {pedidosFiltrados.map(p => (
                 <tr key={p.id}>
-                  <td><strong>{p.nombreDueño || p.cliente?.nombre}</strong></td>
+                  <td><strong>{p.nombreDueño || p.cliente?.nombre || p.cliente?.whatsapp}</strong></td>
                   <td>
                     {p.ubicacion ? (
                       <span className={`badge ${p.ubicacion === 'REPISA' ? 'badge-apartado' : 'badge-enviado'}`}>
@@ -227,12 +251,24 @@ export default function Bodega() {
             <h2>Agregar Pedido</h2>
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label>Nombre</label>
-              <input
+              <select
                 autoFocus
-                value={pedidoNombre}
-                onChange={e => setPedidoNombre(e.target.value)}
-                placeholder="Nombre de la persona"
-              />
+                value={pedidoWhatsapp}
+                onChange={e => setPedidoWhatsapp(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 14 }}
+              >
+                <option value="">— Seleccionar chat —</option>
+                {chats.map(c => (
+                  <option key={c.whatsapp} value={c.whatsapp}>
+                    {c.nombre ? `${c.nombre} (${c.whatsapp})` : c.whatsapp}
+                  </option>
+                ))}
+              </select>
+              {chats.length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Todavía no hay chats de WhatsApp registrados.
+                </div>
+              )}
             </div>
             <div className="form-group" style={{ marginBottom: 16 }}>
               <label>Ubicación</label>
@@ -251,7 +287,7 @@ export default function Bodega() {
               <button
                 className="btn btn-primary"
                 onClick={() => guardarPedido.mutate()}
-                disabled={!pedidoNombre.trim() || !pedidoUbicacion || guardarPedido.isPending}
+                disabled={!pedidoWhatsapp || !pedidoUbicacion || guardarPedido.isPending}
               >
                 {guardarPedido.isPending ? 'Guardando...' : 'Guardar'}
               </button>

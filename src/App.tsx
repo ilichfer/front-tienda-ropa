@@ -5,10 +5,12 @@ import Dashboard from './pages/Dashboard'
 import Bodega from './pages/Bodega'
 import WhatsAppPanel from './pages/WhatsAppPanel'
 import Cuentas from './pages/Cuentas'
+import Inconvenientes from './pages/Inconvenientes'
 
 const nav = [
   { to: '/',        label: 'Dashboard', icon: '📊' },
   { to: '/pedidos', label: 'Pedidos',   icon: '📦' },
+  { to: '/inconvenientes', label: 'Inconvenientes', icon: '⚠️' },
   { to: '/bodega',  label: 'Bodega',    icon: '🏭' },
   { to: '/cuentas', label: 'Cuentas',   icon: '💰' },
   { to: '/whatsapp',label: 'WhatsApp',  icon: '💬' },
@@ -43,6 +45,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/pedidos" element={<Pedidos />} />
+            <Route path="/inconvenientes" element={<Inconvenientes />} />
             <Route path="/bodega" element={<Bodega />} />
             <Route path="/cuentas" element={<Cuentas />} />
             <Route path="/whatsapp" element={<WhatsAppPanel />} />
