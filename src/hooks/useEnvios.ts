@@ -13,6 +13,7 @@ export interface Envio {
   notas?: string
   estado: string
   createdAt: string
+  updatedAt?: string
 }
 
 export function useEnvios(estado?: string) {

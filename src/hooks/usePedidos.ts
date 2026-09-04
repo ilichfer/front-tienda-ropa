@@ -11,15 +11,17 @@ export interface Pedido {
   id: string
   numero: number
   estado: EstadoPedido
-  cliente?: { nombre: string; whatsapp: string; ciudad: string } | null
+  cliente?: { nombre: string; whatsapp: string; ciudad: string; direccion?: string } | null
   prenda?:  { nombre: string; talla: string; precio: number; lote: { nombre: string } } | null
   precioFinal: number
   costoEnvio: number
   total: number
   numeroGuia?: string
+  transportadora?: string
   nombreDueño?: string
   ubicacion?: string
   createdAt: string
+  fechaEnvio?: string
 }
 
 // ── Listar pedidos ─────────────────────────────────────────────────────────────
