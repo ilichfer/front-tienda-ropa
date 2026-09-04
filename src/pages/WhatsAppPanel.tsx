@@ -3,6 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import api from '../api/client'
 import { usePedidos } from '../hooks/usePedidos'
+import { useWaPlantillas, useGuardarWaPlantilla, useCambiarActivaWaPlantilla, useBorrarWaPlantilla, type WaPlantilla } from '../hooks/useWaPlantillas'
+import { useWaNotas, useAgregarWaNota, useBorrarWaNota } from '../hooks/useWaNotas'
+
+const VENTANA_24H_MS = 24 * 60 * 60 * 1000
 
 // Pedidos que todavía no terminaron su ciclo (ni entregados ni cancelados): son los que
 // tiene sentido mostrarle al operador como "activos" en el resumen del cliente.
@@ -22,6 +26,18 @@ interface WaMensaje {
   leido?: boolean
   waMessageId?: string
   contextWaMessageId?: string
+  estadoEntrega?: string
+  errorEntrega?: string
+}
+
+// Ticks de estado de entrega para mensajes SALIDA, igual a la convención visual de WhatsApp
+// (que el operador ya conoce), en vez de inventar un lenguaje nuevo.
+function TickEntrega({ estado, error }: { estado?: string; error?: string }) {
+  if (!estado || estado === 'sent') return <span title="Enviado">✓</span>
+  if (estado === 'delivered') return <span title="Entregado">✓✓</span>
+  if (estado === 'read') return <span title="Leído" style={{ color: '#53bdeb' }}>✓✓</span>
+  if (estado === 'failed') return <span title={error || 'No se pudo entregar'} style={{ color: '#fca5a5' }}>⚠️</span>
+  return null
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -119,7 +135,10 @@ function Bubble({ m, onImgClick, onReply, mensajesPorWaId }: {
         {m.contenido && !m.contenido.startsWith('[') && (
           <div style={{ marginTop: 4, fontSize: 13 }}>{m.contenido}</div>
         )}
-        <span className="wa-time">{new Date(m.createdAt).toLocaleString('es-CO')}</span>
+        <span className="wa-time">
+          {new Date(m.createdAt).toLocaleString('es-CO')}
+          {!esEntrada && <> <TickEntrega estado={m.estadoEntrega} error={m.errorEntrega} /></>}
+        </span>
       </div>
     )
   } else {
@@ -133,7 +152,10 @@ function Bubble({ m, onImgClick, onReply, mensajesPorWaId }: {
          m.tipo === 'document' && url ? <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-sm" style={{ textDecoration: 'none' }}>📄 {m.contenido.startsWith('[') ? 'Abrir documento' : m.contenido}</a> :
          m.tipo === 'location' ? <span>📍 {m.contenido}</span> :
          <span>{icono(m.tipo)}{m.contenido}</span>}
-        <span className="wa-time">{new Date(m.createdAt).toLocaleString('es-CO')}</span>
+        <span className="wa-time">
+          {new Date(m.createdAt).toLocaleString('es-CO')}
+          {!esEntrada && <> <TickEntrega estado={m.estadoEntrega} error={m.errorEntrega} /></>}
+        </span>
       </div>
     )
   }
@@ -160,6 +182,10 @@ export default function WhatsAppPanel() {
   const [mostrarResumen, setMostrarResumen] = useState(true)
   const [confirmarBorrar, setConfirmarBorrar] = useState<string | null>(null)
   const [borrando, setBorrando] = useState(false)
+  const [mostrarPlantillas, setMostrarPlantillas] = useState(false)
+  const [gestionandoPlantillas, setGestionandoPlantillas] = useState(false)
+  const [mostrarNotas, setMostrarNotas] = useState(false)
+  const [notaTexto, setNotaTexto] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
@@ -185,6 +211,9 @@ export default function WhatsAppPanel() {
     from,
     cliente: msgs.find(m => m.cliente)?.cliente,
     ultimo: msgs[0],
+    // Más reciente ENTRADA (no el último mensaje sea cual sea su dirección) — define la
+    // ventana de 24h en la que Meta permite texto libre sin plantilla aprobada.
+    ultimoEntradaAt: msgs.find(m => m.direccion === 'ENTRADA')?.createdAt,
     noLeidos: msgs.filter(m => m.direccion === 'ENTRADA' && !m.leido).length,
     requiereAsesor: msgs.find(m => m.cliente?.requiereAsesor)?.cliente?.requiereAsesor ?? false,
     botSilenciado: msgs.find(m => m.cliente?.botSilenciado)?.cliente?.botSilenciado ?? false,
@@ -208,6 +237,18 @@ export default function WhatsAppPanel() {
     : []
 
   const convActualInfo = selectedFrom ? conversaciones.find(c => c.from === selectedFrom) : undefined
+
+  // Ventana de 24h: Meta solo permite texto libre si el cliente escribió en las últimas 24h;
+  // fuera de esa ventana, cualquier mensaje business-initiated necesita una plantilla
+  // aprobada. Es informativo, no bloquea el envío (evita falsos positivos por reloj/huso).
+  const dentroVentana24h = convActualInfo?.ultimoEntradaAt
+    ? Date.now() - new Date(convActualInfo.ultimoEntradaAt).getTime() < VENTANA_24H_MS
+    : false
+
+  const { data: plantillas = [] } = useWaPlantillas(true)
+  const { data: notas = [] } = useWaNotas(mostrarNotas ? selectedFrom : null)
+  const agregarNotaMutation = useAgregarWaNota()
+  const borrarNotaMutation = useBorrarWaNota()
 
   // Para resolver rápido, por wa_message_id, a qué mensaje se refiere una cita — tanto la que
   // se muestra dentro de una burbuja como la del mensaje que se está por responder.
@@ -280,6 +321,26 @@ export default function WhatsAppPanel() {
     if (!m.waMessageId) return
     setReplyTo(m)
     inputRef.current?.focus()
+  }
+
+  // Inserta el cuerpo de una respuesta rápida en el compositor, reemplazando "{nombre}" por
+  // el nombre del cliente de la conversación actual (si lo tiene guardado) para no tener que
+  // editarlo a mano cada vez.
+  function usarPlantilla(p: WaPlantilla) {
+    const nombreCliente = convActualInfo?.cliente?.nombre
+    setTexto(p.cuerpo.split('{nombre}').join(nombreCliente || ''))
+    setMostrarPlantillas(false)
+    inputRef.current?.focus()
+  }
+
+  async function guardarNota() {
+    if (!notaTexto.trim() || !selectedFrom) return
+    try {
+      await agregarNotaMutation.mutateAsync({ whatsappFrom: selectedFrom, contenido: notaTexto.trim() })
+      setNotaTexto('')
+    } catch (e) {
+      console.error('Error guardando nota', e)
+    }
   }
 
   async function guardarNombre(whatsappFrom: string) {
@@ -499,6 +560,19 @@ export default function WhatsAppPanel() {
                         🟠 Requiere asesor
                       </span>
                     )}
+                    <span
+                      title={dentroVentana24h
+                        ? 'El cliente escribió en las últimas 24h: puedes mandar texto libre.'
+                        : 'El cliente no escribió en las últimas 24h: WhatsApp solo entrega mensajes de plantilla aprobada por Meta (ver Difusión).'}
+                      style={{
+                        fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999,
+                        background: dentroVentana24h ? 'var(--success-tint)' : 'var(--danger-tint)',
+                        color: dentroVentana24h ? 'var(--success)' : 'var(--danger)',
+                        marginLeft: 8, whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {dentroVentana24h ? '🟢 Dentro de ventana' : '🔴 Fuera de ventana'}
+                    </span>
                     <button
                       className="btn btn-sm"
                       onClick={() => toggleSilenciarBot(selectedFrom!, !convActualInfo?.botSilenciado)}
@@ -560,6 +634,64 @@ export default function WhatsAppPanel() {
                 </div>
               )}
 
+              {/* Notas internas: solo las ve el asesor, nunca se le mandan al cliente. Mismo
+                  patrón colapsable que "Resumen del cliente" de arriba. */}
+              <div
+                onClick={() => setMostrarNotas(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+                  padding: '6px 16px', fontSize: 12, color: 'var(--text-muted)',
+                  borderBottom: '1px solid var(--border)', background: 'var(--card-bg, #fafafa)',
+                  flexShrink: 0,
+                }}
+              >
+                <span style={{ fontWeight: 600 }}>📝 Notas internas</span>
+                {notas.length > 0 && (
+                  <span style={{ padding: '2px 8px', borderRadius: 999, fontWeight: 600, background: 'var(--border)' }}>
+                    {notas.length}
+                  </span>
+                )}
+                <span style={{ marginLeft: 'auto' }}>{mostrarNotas ? '▾' : '▸'}</span>
+              </div>
+              {mostrarNotas && (
+                <div style={{ padding: '10px 16px', fontSize: 13, borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+                  {notas.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', margin: 0 }}>Sin notas todavía.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, maxHeight: 160, overflowY: 'auto' }}>
+                      {notas.map(n => (
+                        <div key={n.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                              {n.autor ? n.autor + ' · ' : ''}{new Date(n.createdAt).toLocaleString('es-CO')}
+                            </div>
+                            <div style={{ whiteSpace: 'pre-wrap' }}>{n.contenido}</div>
+                          </div>
+                          <button
+                            title="Borrar nota"
+                            onClick={() => borrarNotaMutation.mutate(n.id)}
+                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0 }}
+                          >🗑️</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <textarea
+                      className="input"
+                      placeholder="Agregar una nota interna..."
+                      value={notaTexto}
+                      onChange={e => setNotaTexto(e.target.value)}
+                      rows={2}
+                      style={{ flex: 1, resize: 'vertical', fontSize: 13 }}
+                    />
+                    <button className="btn btn-sm btn-primary" onClick={guardarNota} disabled={!notaTexto.trim()}>
+                      Agregar
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div
                 className="wa-conversation-body"
                 ref={bodyRef}
@@ -601,6 +733,54 @@ export default function WhatsAppPanel() {
                     >✕</button>
                   </div>
                 )}
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    title="Respuestas rápidas"
+                    onClick={() => setMostrarPlantillas(v => !v)}
+                  >⚡</button>
+                  {mostrarPlantillas && (
+                    <div
+                      className="card"
+                      style={{
+                        position: 'absolute', bottom: '100%', left: 0, marginBottom: 8,
+                        width: 280, maxHeight: 320, overflowY: 'auto', zIndex: 10, padding: 8,
+                      }}
+                    >
+                      {plantillas.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: 13, padding: 8 }}>
+                          No tienes respuestas rápidas todavía.
+                        </p>
+                      ) : (
+                        plantillas.map(p => (
+                          <div
+                            key={p.id}
+                            onClick={() => usarPlantilla(p)}
+                            style={{
+                              padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-muted)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <div style={{ fontWeight: 600 }}>{p.titulo}</div>
+                            <div style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.cuerpo}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                      <div style={{ borderTop: '1px solid var(--border)', marginTop: 6, paddingTop: 6 }}>
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          style={{ width: '100%' }}
+                          onClick={() => { setMostrarPlantillas(false); setGestionandoPlantillas(true) }}
+                        >
+                          ⚙️ Gestionar respuestas rápidas
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <input
                   ref={inputRef}
                   placeholder={replyTo ? 'Escribe tu respuesta...' : 'Escribe un mensaje...'}
@@ -671,6 +851,101 @@ export default function WhatsAppPanel() {
           </div>
         </div>
       )}
+
+      {gestionandoPlantillas && (
+        <GestionarPlantillasModal onClose={() => setGestionandoPlantillas(false)} />
+      )}
+    </div>
+  )
+}
+
+// Modal de CRUD de respuestas rápidas — separado del componente principal porque tiene su
+// propio formulario de edición y no necesita nada del estado del chat.
+function GestionarPlantillasModal({ onClose }: { onClose: () => void }) {
+  const { data: plantillas = [] } = useWaPlantillas()
+  const guardar = useGuardarWaPlantilla()
+  const cambiarActiva = useCambiarActivaWaPlantilla()
+  const borrar = useBorrarWaPlantilla()
+
+  const [editando, setEditando] = useState<WaPlantilla | null>(null)
+  const [slug, setSlug] = useState('')
+  const [titulo, setTitulo] = useState('')
+  const [cuerpo, setCuerpo] = useState('')
+
+  function editar(p: WaPlantilla | null) {
+    setEditando(p)
+    setSlug(p?.slug || '')
+    setTitulo(p?.titulo || '')
+    setCuerpo(p?.cuerpo || '')
+  }
+
+  async function guardarForm() {
+    if (!slug.trim() || !titulo.trim() || !cuerpo.trim()) return
+    await guardar.mutateAsync({ id: editando?.id, slug: slug.trim(), titulo: titulo.trim(), cuerpo: cuerpo.trim() })
+    editar(null)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+        <h2>Respuestas rápidas</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+          Texto libre para el compositor del chat. Usa <code>{'{nombre}'}</code> para que se
+          reemplace con el nombre del cliente al usarla.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16, maxHeight: 260, overflowY: 'auto' }}>
+          {plantillas.length === 0 && (
+            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Todavía no hay ninguna.</p>
+          )}
+          {plantillas.map(p => (
+            <div key={p.id} className="card" style={{ padding: 10, opacity: p.activa ? 1 : .5 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.titulo}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {p.cuerpo}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  <button className="btn btn-sm btn-secondary" onClick={() => editar(p)} title="Editar">✏️</button>
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => cambiarActiva.mutate({ id: p.id, activa: !p.activa })}
+                    title={p.activa ? 'Desactivar' : 'Activar'}
+                  >{p.activa ? '🙈' : '👁️'}</button>
+                  <button className="btn btn-sm btn-secondary" onClick={() => borrar.mutate(p.id)} title="Borrar">🗑️</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <h2 style={{ fontSize: 15 }}>{editando ? 'Editar' : 'Nueva'} respuesta rápida</h2>
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label>Título (para reconocerla en la lista)</label>
+          <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej: Datos de pago" />
+        </div>
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label>Slug (identificador corto, sin espacios)</label>
+          <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="Ej: datos-pago" />
+        </div>
+        <div className="form-group" style={{ marginBottom: 16 }}>
+          <label>Cuerpo del mensaje</label>
+          <textarea className="input" rows={4} value={cuerpo} onChange={e => setCuerpo(e.target.value)} />
+        </div>
+        <div className="form-actions">
+          {editando && (
+            <button className="btn btn-secondary" onClick={() => editar(null)}>Cancelar edición</button>
+          )}
+          <button className="btn btn-primary" onClick={guardarForm} disabled={guardar.isPending}>
+            {editando ? 'Guardar cambios' : 'Crear'}
+          </button>
+        </div>
+        <div className="form-actions" style={{ justifyContent: 'flex-start', marginTop: 8 }}>
+          <button className="btn btn-secondary" onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
     </div>
   )
 }

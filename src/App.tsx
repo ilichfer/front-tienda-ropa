@@ -6,6 +6,7 @@ import Bodega from './pages/Bodega'
 import WhatsAppPanel from './pages/WhatsAppPanel'
 import Cuentas from './pages/Cuentas'
 import Inconvenientes from './pages/Inconvenientes'
+import Difusion from './pages/Difusion'
 
 const nav = [
   { to: '/',        label: 'Dashboard', icon: '📊' },
@@ -14,6 +15,7 @@ const nav = [
   { to: '/bodega',  label: 'Bodega',    icon: '🏭' },
   { to: '/cuentas', label: 'Cuentas',   icon: '💰' },
   { to: '/whatsapp',label: 'WhatsApp',  icon: '💬' },
+  { to: '/difusion',label: 'Difusión',  icon: '📢' },
 ]
 
 export default function App() {
@@ -49,6 +51,7 @@ export default function App() {
             <Route path="/bodega" element={<Bodega />} />
             <Route path="/cuentas" element={<Cuentas />} />
             <Route path="/whatsapp" element={<WhatsAppPanel />} />
+            <Route path="/difusion" element={<Difusion />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
