@@ -19,7 +19,7 @@ interface WaMensaje {
   tipo: string
   direccion: 'ENTRADA' | 'SALIDA'
   createdAt: string
-  cliente?: { nombre: string; requiereAsesor?: boolean; botSilenciado?: boolean }
+  cliente?: { nombre: string; requiereAsesor?: boolean; botSilenciado?: boolean; esBuzonGuias?: boolean }
   mediaId?: string
   mediaPath?: string
   mimeType?: string
@@ -95,10 +95,11 @@ function Cita({ citado, onClick }: { citado: WaMensaje, onClick: () => void }) {
   )
 }
 
-function Bubble({ m, onImgClick, onReply, mensajesPorWaId }: {
+function Bubble({ m, onImgClick, onReply, onReenviar, mensajesPorWaId }: {
   m: WaMensaje
   onImgClick: (url: string) => void
   onReply: (m: WaMensaje) => void
+  onReenviar: (m: WaMensaje) => void
   mensajesPorWaId: Map<string, WaMensaje>
 }) {
   const [imgError, setImgError] = useState(false)
@@ -118,6 +119,16 @@ function Bubble({ m, onImgClick, onReply, mensajesPorWaId }: {
       title="Responder citando este mensaje"
       onClick={() => onReply(m)}
     >↩️</button>
+  )
+
+  // Reenviar a otro chat: solo tiene sentido para imágenes que ya se pudieron mostrar (si
+  // falló guardar la foto no hay nada que reenviar).
+  const botonReenviar = m.tipo === 'image' && url && !imgError && (
+    <button
+      className="wa-reply-btn"
+      title="Reenviar esta imagen a otro chat"
+      onClick={() => onReenviar(m)}
+    >📤</button>
   )
 
   let contenidoBubble
@@ -162,9 +173,11 @@ function Bubble({ m, onImgClick, onReply, mensajesPorWaId }: {
 
   return (
     <div className={`wa-bubble-row ${esEntrada ? 'in' : 'out'}`}>
+      {!esEntrada && botonReenviar}
       {!esEntrada && botonResponder}
       {contenidoBubble}
       {esEntrada && botonResponder}
+      {esEntrada && botonReenviar}
     </div>
   )
 }
@@ -186,6 +199,10 @@ export default function WhatsAppPanel() {
   const [gestionandoPlantillas, setGestionandoPlantillas] = useState(false)
   const [mostrarNotas, setMostrarNotas] = useState(false)
   const [notaTexto, setNotaTexto] = useState('')
+  const [reenviarMsg, setReenviarMsg] = useState<WaMensaje | null>(null)
+  const [reenviarBusqueda, setReenviarBusqueda] = useState('')
+  const [reenviarDestino, setReenviarDestino] = useState<string | null>(null)
+  const [reenviando, setReenviando] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
@@ -217,6 +234,7 @@ export default function WhatsAppPanel() {
     noLeidos: msgs.filter(m => m.direccion === 'ENTRADA' && !m.leido).length,
     requiereAsesor: msgs.find(m => m.cliente?.requiereAsesor)?.cliente?.requiereAsesor ?? false,
     botSilenciado: msgs.find(m => m.cliente?.botSilenciado)?.cliente?.botSilenciado ?? false,
+    esBuzonGuias: msgs.find(m => m.cliente?.esBuzonGuias)?.cliente?.esBuzonGuias ?? false,
   })).sort((a, b) => {
     if (a.requiereAsesor && !b.requiereAsesor) return -1
     if (!a.requiereAsesor && b.requiereAsesor) return 1
@@ -367,6 +385,22 @@ export default function WhatsAppPanel() {
     } catch (e) {
       console.error('Error cambiando estado del bot', e)
     }
+  }
+
+  // Marca/desmarca el chat actual como el buzón de donde llegan las fotos de guías de envío
+  // (ej. Interrápidísimo) — el backend también activa "silenciar bot" al marcarlo.
+  async function toggleBuzonGuias(whatsappFrom: string, marcarAhora: boolean) {
+    try {
+      await api.patch('/wa-mensajes/marcar-buzon-guias', { whatsappFrom, esBuzonGuias: marcarAhora })
+      queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
+    } catch (e) {
+      console.error('Error marcando buzón de guías', e)
+    }
+  }
+
+  async function reenviarImagen(mensajeId: string, destinatario: string) {
+    await api.post('/wa-mensajes/reenviar-imagen', { mensajeId, destinatario })
+    queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
   }
 
   async function borrarConversacion(whatsappFrom: string) {
@@ -586,6 +620,21 @@ export default function WhatsAppPanel() {
                     >
                       {convActualInfo?.botSilenciado ? '🔇 Bot silenciado' : '🔊 Silenciar bot'}
                     </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => toggleBuzonGuias(selectedFrom!, !convActualInfo?.esBuzonGuias)}
+                      title={convActualInfo?.esBuzonGuias
+                        ? 'Este chat está marcado como buzón de guías. Clic para desmarcarlo.'
+                        : 'Marcar este chat como el buzón de donde llegan las fotos de guías de envío (no es un cliente).'}
+                      style={{
+                        marginLeft: 8, borderRadius: 999, padding: '4px 12px', fontSize: 12,
+                        fontWeight: 600, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                        background: convActualInfo?.esBuzonGuias ? 'var(--primary-tint)' : 'var(--surface-muted)',
+                        color: convActualInfo?.esBuzonGuias ? 'var(--primary-dark)' : 'var(--text-muted)',
+                      }}
+                    >
+                      {convActualInfo?.esBuzonGuias ? '📦 Buzón de guías' : '📦 Marcar buzón de guías'}
+                    </button>
                   </>
                 )}
               </div>
@@ -703,6 +752,7 @@ export default function WhatsAppPanel() {
                     m={m}
                     onImgClick={url => setModalImg(url)}
                     onReply={iniciarRespuesta}
+                    onReenviar={setReenviarMsg}
                     mensajesPorWaId={mensajesPorWaId}
                   />
                 ))}
@@ -854,6 +904,90 @@ export default function WhatsAppPanel() {
 
       {gestionandoPlantillas && (
         <GestionarPlantillasModal onClose={() => setGestionandoPlantillas(false)} />
+      )}
+
+      {/* Reenviar una imagen a otro chat: paso 1 elegir destinatario, paso 2 confirmar. */}
+      {reenviarMsg && (
+        <div
+          className="modal-overlay"
+          onClick={() => { if (!reenviando) { setReenviarMsg(null); setReenviarDestino(null); setReenviarBusqueda('') } }}
+        >
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            {!reenviarDestino ? (
+              <>
+                <h2>Reenviar imagen</h2>
+                <input
+                  autoFocus
+                  placeholder="Buscar por nombre o número..."
+                  value={reenviarBusqueda}
+                  onChange={e => setReenviarBusqueda(e.target.value)}
+                  style={{ width: '100%', marginBottom: 12 }}
+                />
+                <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {conversaciones
+                    .filter(c => c.from !== reenviarMsg.whatsappFrom)
+                    .filter(c => {
+                      if (!reenviarBusqueda.trim()) return true
+                      const q = reenviarBusqueda.toLowerCase()
+                      return (c.cliente?.nombre || '').toLowerCase().includes(q) || c.from.toLowerCase().includes(q)
+                    })
+                    .map(c => (
+                      <div
+                        key={c.from}
+                        onClick={() => setReenviarDestino(c.from)}
+                        className="card"
+                        style={{ padding: '8px 12px', cursor: 'pointer' }}
+                      >
+                        {c.cliente?.nombre || <span style={{ color: 'var(--text-muted)' }}>{c.from}</span>}
+                      </div>
+                    ))}
+                </div>
+                <div className="form-actions">
+                  <button className="btn btn-secondary" onClick={() => { setReenviarMsg(null); setReenviarBusqueda('') }}>
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Confirmar reenvío</h2>
+                <p style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {mediaUrl(reenviarMsg) && (
+                    <img src={mediaUrl(reenviarMsg)!} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+                  )}
+                  <span>
+                    ¿Reenviar esta imagen a{' '}
+                    <strong>{conversaciones.find(c => c.from === reenviarDestino)?.cliente?.nombre || reenviarDestino}</strong>?
+                  </span>
+                </p>
+                <div className="form-actions">
+                  <button className="btn btn-secondary" disabled={reenviando} onClick={() => setReenviarDestino(null)}>
+                    Atrás
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={reenviando}
+                    onClick={async () => {
+                      setReenviando(true)
+                      try {
+                        await reenviarImagen(reenviarMsg.id, reenviarDestino)
+                        setReenviarMsg(null)
+                        setReenviarDestino(null)
+                        setReenviarBusqueda('')
+                      } catch (e) {
+                        console.error('Error reenviando imagen', e)
+                      } finally {
+                        setReenviando(false)
+                      }
+                    }}
+                  >
+                    {reenviando ? 'Enviando...' : 'Reenviar'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
