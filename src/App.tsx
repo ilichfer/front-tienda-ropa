@@ -7,6 +7,7 @@ import WhatsAppPanel from './pages/WhatsAppPanel'
 import Cuentas from './pages/Cuentas'
 import Inconvenientes from './pages/Inconvenientes'
 import Difusion from './pages/Difusion'
+import PilaAvisos from './ui/PilaAvisos'
 
 const nav = [
   { to: '/',        label: 'Dashboard', icon: '📊' },
@@ -77,6 +78,7 @@ export default function App() {
             </nav>
           </div>
         )}
+        <PilaAvisos />
       </div>
     </BrowserRouter>
   )

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePedidos, useCambiarEstado, usePedidosRealtime, EstadoPedido, Pedido } from '../hooks/usePedidos'
 import { useEnvios, useCambiarEstadoEnvio, Envio } from '../hooks/useEnvios'
+import ErrorCarga from '../ui/ErrorCarga'
+import HojaEtiquetas, { type EtiquetaPersona } from '../ui/HojaEtiquetas'
 
 type Tab = 'PENDIENTES' | 'ENVIADOS'
 
@@ -31,6 +33,76 @@ function fmtFecha(s?: string) {
   })
 }
 
+const clavePedido = (id: string) => `p-${id}`
+const claveEnvio = (id: string) => `e-${id}`
+
+const instante = (s?: string) => (s ? Date.parse(s) : NaN) || 0
+
+// Un mismo número de WhatsApp puede pedir envíos para personas distintas (ej. un regalo), así
+// que el recuadro es por destinatario: número + cédula (o nombre, si no dio cédula).
+const claveDestinatario = (e: Envio) =>
+  `${e.whatsapp}|${(e.cedula || e.nombreCompleto || '').trim().toLowerCase()}`
+
+/**
+ * Arma un recuadro por destinatario con lo seleccionado. Si una persona tiene varios pedidos (o
+ * un pedido y su solicitud de envío) sale una sola vez, con todo lo que se le manda en
+ * "Contenido". Los datos salen de la solicitud de envío (la que tiene cédula, barrio, etc.); un
+ * pedido sin solicitud seleccionada usa la más reciente de ese número y, si no hay ninguna, lo
+ * que se sabe del cliente en el pedido.
+ */
+function construirEtiquetas(seleccion: Set<string>, pedidos: Pedido[], envios: Envio[]): EtiquetaPersona[] {
+  const envioMasReciente = (whatsapp?: string, entre: Envio[] = envios) =>
+    whatsapp
+      ? entre.filter(e => e.whatsapp === whatsapp).sort((a, b) => instante(b.createdAt) - instante(a.createdAt))[0]
+      : undefined
+
+  const enviosSeleccionados = envios.filter(e => seleccion.has(claveEnvio(e.id)))
+  const personas = new Map<string, EtiquetaPersona>()
+
+  const persona = (clave: string, base: () => EtiquetaPersona) => {
+    if (!personas.has(clave)) personas.set(clave, base())
+    return personas.get(clave)!
+  }
+
+  const desdeEnvio = (clave: string, whatsapp: string | undefined, envio: Envio | undefined,
+                      respaldo: Partial<EtiquetaPersona> = {}): EtiquetaPersona => ({
+    clave,
+    nombre: envio?.nombreCompleto || respaldo.nombre,
+    cedula: envio?.cedula,
+    telefono: envio?.telefono || whatsapp,
+    whatsapp,
+    direccion: envio?.direccion || respaldo.direccion,
+    barrio: envio?.barrio,
+    ciudad: envio?.ciudad || respaldo.ciudad,
+    contenido: [],
+  })
+
+  // Del más nuevo al más viejo: si el mismo destinatario pidió envío dos veces, quedan sus
+  // datos más recientes.
+  const porFecha = [...enviosSeleccionados].sort((a, b) => instante(b.createdAt) - instante(a.createdAt))
+  for (const e of porFecha) {
+    const clave = claveDestinatario(e)
+    persona(clave, () => desdeEnvio(clave, e.whatsapp, e))
+  }
+
+  for (const pedido of pedidos.filter(p => seleccion.has(clavePedido(p.id)))) {
+    const whatsapp = pedido.cliente?.whatsapp
+    const envio = envioMasReciente(whatsapp, enviosSeleccionados) ?? envioMasReciente(whatsapp)
+    const clave = envio ? claveDestinatario(envio) : whatsapp || clavePedido(pedido.id)
+    const p = persona(clave, () => desdeEnvio(clave, whatsapp, envio, {
+      nombre: pedido.cliente?.nombre || pedido.nombreDueño,
+      direccion: pedido.cliente?.direccion,
+      ciudad: pedido.cliente?.ciudad,
+    }))
+    p.contenido.push(pedido.prenda
+      ? `#${pedido.numero} ${pedido.prenda.nombre}${pedido.prenda.talla ? ` talla ${pedido.prenda.talla}` : ''}`
+      : `Pedido #${pedido.numero}`)
+  }
+
+  return Array.from(personas.values())
+    .sort((a, b) => (a.nombre || a.whatsapp || '').localeCompare(b.nombre || b.whatsapp || ''))
+}
+
 function irAWhatsApp(navigate: ReturnType<typeof useNavigate>, whatsapp?: string) {
   if (!whatsapp) return
   navigate(`/whatsapp?from=${encodeURIComponent(whatsapp)}`)
@@ -39,12 +111,14 @@ function irAWhatsApp(navigate: ReturnType<typeof useNavigate>, whatsapp?: string
 export default function Pedidos() {
   const [tab, setTab] = useState<Tab>('PENDIENTES')
   const [busqueda, setBusqueda] = useState('')
+  const [seleccion, setSeleccion] = useState<Set<string>>(new Set())
+  const [mostrarHoja, setMostrarHoja] = useState(false)
   const navigate = useNavigate()
 
   // Se trae todo y se separa en el cliente: así "Envíos pendientes" puede incluir
   // cualquier pedido que todavía no se haya enviado, sin importar en qué paso
   // del proceso vaya (nuevo, apartado, pagado o empacado).
-  const { data: pedidos = [], isLoading: cargandoPedidos } = usePedidos()
+  const { data: pedidos = [], isLoading: cargandoPedidos, isError: errorPedidos, error: errPedidos, refetch: recargarPedidos } = usePedidos()
   const { mutate: cambiarEstado, isPending: cambiandoPedido } = useCambiarEstado()
   usePedidosRealtime()
 
@@ -52,7 +126,7 @@ export default function Pedidos() {
   // WhatsApp) son un registro aparte de los pedidos de prenda — no todo el que da sus
   // datos de envío tiene necesariamente un pedido creado. Por eso se muestran también
   // acá, para que ninguna solicitud quede "perdida" fuera de esta sección.
-  const { data: envios = [], isLoading: cargandoEnvios } = useEnvios()
+  const { data: envios = [], isLoading: cargandoEnvios, isError: errorEnvios, error: errEnvios, refetch: recargarEnvios } = useEnvios()
   const { mutate: cambiarEstadoEnvio, isPending: cambiandoEnvio } = useCambiarEstadoEnvio()
 
   const isLoading = cargandoPedidos || cargandoEnvios
@@ -101,18 +175,85 @@ export default function Pedidos() {
   const totalPendientes = pedidosPendientes.length + enviosPendientes.length
   const totalEnviados = pedidosEnviadosFiltrados.length + enviosEnviadosFiltrados.length
 
+  // Lo que se ve en la pestaña actual es lo que "Seleccionar todos" marca.
+  const clavesVisibles = tab === 'PENDIENTES'
+    ? [...pedidosPendientes.map(p => clavePedido(p.id)), ...enviosPendientes.map(e => claveEnvio(e.id))]
+    : [...pedidosEnviadosFiltrados.map(p => clavePedido(p.id)), ...enviosEnviadosFiltrados.map(e => claveEnvio(e.id))]
+  const seleccionadosVisibles = clavesVisibles.filter(k => seleccion.has(k)).length
+  const todosSeleccionados = clavesVisibles.length > 0 && seleccionadosVisibles === clavesVisibles.length
+
+  const etiquetas = useMemo(
+    () => construirEtiquetas(seleccion, pedidos, envios),
+    [seleccion, pedidos, envios]
+  )
+
+  const alternar = (clave: string) => setSeleccion(prev => {
+    const nueva = new Set(prev)
+    if (nueva.has(clave)) nueva.delete(clave)
+    else nueva.add(clave)
+    return nueva
+  })
+
+  const alternarTodos = () => setSeleccion(todosSeleccionados ? new Set() : new Set(clavesVisibles))
+
+  const cambiarTab = (t: Tab) => {
+    setTab(t)
+    setSeleccion(new Set())
+  }
+
+  const casilla = (clave: string, nombre: string) => (
+    <label className="pedido-check">
+      <input
+        type="checkbox"
+        checked={seleccion.has(clave)}
+        onChange={() => alternar(clave)}
+        aria-label={`Seleccionar a ${nombre}`}
+      />
+    </label>
+  )
+
+  const barraSeleccion = clavesVisibles.length > 0 && (
+    <div className={`seleccion-barra ${seleccion.size > 0 ? 'activa' : ''}`}>
+      <label className="seleccion-todos">
+        <input
+          type="checkbox"
+          checked={todosSeleccionados}
+          ref={el => { if (el) el.indeterminate = seleccionadosVisibles > 0 && !todosSeleccionados }}
+          onChange={alternarTodos}
+          aria-label="Seleccionar todos"
+        />
+        Seleccionar todos ({clavesVisibles.length})
+      </label>
+      {seleccion.size > 0 && (
+        <div className="seleccion-acciones">
+          <span>
+            {seleccion.size} {seleccion.size === 1 ? 'seleccionado' : 'seleccionados'},{' '}
+            {etiquetas.length} {etiquetas.length === 1 ? 'persona' : 'personas'}
+          </span>
+          <button className="btn btn-sm btn-secondary" onClick={() => setSeleccion(new Set())}>Quitar selección</button>
+          <button className="btn btn-sm btn-primary" onClick={() => setMostrarHoja(true)}>Generar hoja de impresión</button>
+        </div>
+      )}
+    </div>
+  )
+
+  const hayError = errorPedidos || errorEnvios
+
   return (
     <div className="page">
+      {errorPedidos && <ErrorCarga error={errPedidos} onReintentar={() => recargarPedidos()} que="los pedidos" />}
+      {errorEnvios && <ErrorCarga error={errEnvios} onReintentar={() => recargarEnvios()} que="las solicitudes de envío" />}
+
       <div className="filtros">
         <button
           className={`filter-btn ${tab === 'PENDIENTES' ? 'active' : ''}`}
-          onClick={() => setTab('PENDIENTES')}
+          onClick={() => cambiarTab('PENDIENTES')}
         >
           Envíos pendientes
         </button>
         <button
           className={`filter-btn ${tab === 'ENVIADOS' ? 'active' : ''}`}
-          onClick={() => setTab('ENVIADOS')}
+          onClick={() => cambiarTab('ENVIADOS')}
         >
           Enviados
         </button>
@@ -122,9 +263,11 @@ export default function Pedidos() {
         <>
           {isLoading && <div className="loading">Cargando...</div>}
 
+          {barraSeleccion}
           <div className="pedidos-grid">
             {pedidosPendientes.map(pedido => (
-              <div key={`p-${pedido.id}`} className="pedido-card">
+              <div key={`p-${pedido.id}`} className={`pedido-card ${seleccion.has(clavePedido(pedido.id)) ? 'seleccionado' : ''}`}>
+                {casilla(clavePedido(pedido.id), pedido.cliente?.nombre || pedido.nombreDueño || `pedido #${pedido.numero}`)}
                 <div className="pedido-header">
                   <div>
                     <span className="pedido-num">#{pedido.numero}</span>
@@ -178,7 +321,8 @@ export default function Pedidos() {
             ))}
 
             {enviosPendientes.map((envio: Envio) => (
-              <div key={`e-${envio.id}`} className="pedido-card">
+              <div key={`e-${envio.id}`} className={`pedido-card ${seleccion.has(claveEnvio(envio.id)) ? 'seleccionado' : ''}`}>
+                {casilla(claveEnvio(envio.id), envio.nombreCompleto || envio.whatsapp)}
                 <div className="pedido-header">
                   <div>
                     <span className="pedido-num" style={{ fontSize: 13 }}>
@@ -217,7 +361,7 @@ export default function Pedidos() {
               </div>
             ))}
 
-            {!isLoading && totalPendientes === 0 && (
+            {!isLoading && !hayError && totalPendientes === 0 && (
               <div className="empty-state" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40 }}>
                 <p>No hay envíos pendientes</p>
               </div>
@@ -239,9 +383,11 @@ export default function Pedidos() {
 
           {isLoading && <div className="loading">Cargando...</div>}
 
+          {barraSeleccion}
           <div className="pedidos-grid">
             {pedidosEnviadosFiltrados.map((pedido: Pedido) => (
-              <div key={`p-${pedido.id}`} className="pedido-card">
+              <div key={`p-${pedido.id}`} className={`pedido-card ${seleccion.has(clavePedido(pedido.id)) ? 'seleccionado' : ''}`}>
+                {casilla(clavePedido(pedido.id), pedido.cliente?.nombre || pedido.nombreDueño || `pedido #${pedido.numero}`)}
                 <div className="pedido-header">
                   <div>
                     <span className="pedido-num">#{pedido.numero}</span>
@@ -275,7 +421,8 @@ export default function Pedidos() {
             ))}
 
             {enviosEnviadosFiltrados.map((envio: Envio) => (
-              <div key={`e-${envio.id}`} className="pedido-card">
+              <div key={`e-${envio.id}`} className={`pedido-card ${seleccion.has(claveEnvio(envio.id)) ? 'seleccionado' : ''}`}>
+                {casilla(claveEnvio(envio.id), envio.nombreCompleto || envio.whatsapp)}
                 <div className="pedido-header">
                   <div>
                     <span className="pedido-num" style={{ fontSize: 13 }}>#</span>
@@ -306,13 +453,17 @@ export default function Pedidos() {
               </div>
             ))}
 
-            {!isLoading && totalEnviados === 0 && (
+            {!isLoading && !hayError && totalEnviados === 0 && (
               <div className="empty-state" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40 }}>
                 <p>{busqueda ? 'Sin resultados para esa búsqueda' : 'Aún no hay pedidos enviados'}</p>
               </div>
             )}
           </div>
         </>
+      )}
+
+      {mostrarHoja && etiquetas.length > 0 && (
+        <HojaEtiquetas personas={etiquetas} onCerrar={() => setMostrarHoja(false)} />
       )}
     </div>
   )

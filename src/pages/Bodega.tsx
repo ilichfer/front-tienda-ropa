@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../api/client'
+import ErrorCarga from '../ui/ErrorCarga'
 
 interface Lote {
   id: string
@@ -50,7 +51,7 @@ export default function Bodega() {
   const [pedidoWhatsapp, setPedidoWhatsapp] = useState('')
   const [pedidoUbicacion, setPedidoUbicacion] = useState('')
 
-  const { data: lotes = [], isLoading } = useQuery<Lote[]>({
+  const { data: lotes = [], isLoading, isError: errorLotes, error: errLotes, refetch: recargarLotes } = useQuery<Lote[]>({
     queryKey: ['lotes'],
     queryFn: () => api.get('/lotes').then(r => r.data),
   })
@@ -61,16 +62,16 @@ export default function Bodega() {
     enabled: !!loteSeleccionado,
   })
 
-  const { data: pedidos = [] } = useQuery<Pedido[]>({
+  const { data: pedidos = [], isError: errorPedidos, error: errPedidos, refetch: recargarPedidos } = useQuery<Pedido[]>({
     queryKey: ['pedidos'],
     queryFn: () => api.get('/pedidos').then(r => r.data),
   })
 
   // Chats existentes de WhatsApp, para el desplegable de "Nombre" del modal de
   // Agregar Pedido — así el pedido queda atado a un chat real en vez de texto libre.
-  const { data: mensajes = [] } = useQuery<WaMensaje[]>({
+  const { data: mensajes = [], isError: errorChats } = useQuery<WaMensaje[]>({
     queryKey: ['wa-mensajes'],
-    queryFn: () => api.get('/wa-mensajes').then(r => r.data).catch(() => [] as WaMensaje[]),
+    queryFn: () => api.get('/wa-mensajes').then(r => r.data),
   })
 
   const chats = Array.from(
@@ -124,6 +125,9 @@ export default function Bodega() {
         </button>
       </div>
 
+      {errorPedidos && <ErrorCarga error={errPedidos} onReintentar={() => recargarPedidos()} que="los pedidos" />}
+      {errorLotes && <ErrorCarga error={errLotes} onReintentar={() => recargarLotes()} que="los lotes" />}
+
       {/* Pedidos en bodega */}
       <div className="card" style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
@@ -163,7 +167,7 @@ export default function Bodega() {
               ))}
               {pedidosFiltrados.length === 0 && (
                 <tr><td colSpan={2} className="empty-state">
-                  {busqueda ? 'Sin resultados para "' + busqueda + '"' : 'No hay pedidos registrados'}
+                  {busqueda ? 'Sin resultados para "' + busqueda + '"' : errorPedidos ? 'No se pudieron cargar los pedidos' : 'No hay pedidos registrados'}
                 </td></tr>
               )}
             </tbody>
@@ -201,7 +205,7 @@ export default function Bodega() {
               </tr>
             ))}
             {lotes.length === 0 && (
-              <tr><td colSpan={6} className="empty-state">No hay lotes registrados</td></tr>
+              <tr><td colSpan={6} className="empty-state">{errorLotes ? 'No se pudieron cargar los lotes' : 'No hay lotes registrados'}</td></tr>
             )}
           </tbody>
         </table>
@@ -265,8 +269,8 @@ export default function Bodega() {
                 ))}
               </select>
               {chats.length === 0 && (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                  Todavía no hay chats de WhatsApp registrados.
+                <div style={{ fontSize: 12, color: errorChats ? 'var(--danger)' : 'var(--text-muted)', marginTop: 4 }}>
+                  {errorChats ? 'No se pudieron cargar los chats. Cierra y vuelve a abrir esta ventana.' : 'Todavía no hay chats de WhatsApp registrados.'}
                 </div>
               )}
             </div>

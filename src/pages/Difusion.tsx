@@ -5,6 +5,8 @@ import {
   useBroadcasts, useBroadcastDetalle, useCrearBroadcast,
   type WaPlantillaMeta,
 } from '../hooks/useBroadcasts'
+import { avisarExito } from '../ui/avisos'
+import ErrorCarga from '../ui/ErrorCarga'
 
 const TOKEN_NOMBRE_CLIENTE = '{{cliente_nombre}}'
 
@@ -31,7 +33,7 @@ export default function Difusion() {
 // ── Plantillas de Meta registradas ─────────────────────────────────────────────
 
 function PlantillasMetaCard() {
-  const { data: plantillas = [] } = useWaPlantillasMeta()
+  const { data: plantillas = [], isError: errorPlantillas, error: errPlantillas, refetch: recargarPlantillas } = useWaPlantillasMeta()
   const registrar = useRegistrarPlantillaMeta()
   const borrar = useBorrarPlantillaMeta()
   const [mostrarForm, setMostrarForm] = useState(false)
@@ -42,8 +44,13 @@ function PlantillasMetaCard() {
 
   async function crear() {
     if (!nombre.trim()) return
-    await registrar.mutateAsync({ nombre: nombre.trim(), idioma: idioma.trim() || 'es', variables: variables.trim(), descripcion: descripcion.trim() })
-    setNombre(''); setVariables(''); setDescripcion(''); setMostrarForm(false)
+    try {
+      await registrar.mutateAsync({ nombre: nombre.trim(), idioma: idioma.trim() || 'es', variables: variables.trim(), descripcion: descripcion.trim() })
+      setNombre(''); setVariables(''); setDescripcion(''); setMostrarForm(false)
+    } catch {
+      // El aviso de error lo muestra el manejador global de mutaciones; el formulario queda
+      // abierto con lo escrito para poder corregir y reintentar.
+    }
   }
 
   return (
@@ -54,6 +61,8 @@ function PlantillasMetaCard() {
           {mostrarForm ? 'Cancelar' : '+ Registrar plantilla'}
         </button>
       </div>
+
+      {errorPlantillas && <ErrorCarga error={errPlantillas} onReintentar={() => recargarPlantillas()} que="las plantillas" />}
 
       {mostrarForm && (
         <div style={{ marginBottom: 16, padding: 12, background: 'var(--surface-muted)', borderRadius: 'var(--radius-sm)' }}>
@@ -160,9 +169,15 @@ function NuevaDifusionCard() {
       const c = config[e]
       variablesConfig[e] = c?.modo === 'cliente' ? TOKEN_NOMBRE_CLIENTE : (c?.valorFijo || '')
     })
-    await crear.mutateAsync({ plantillaMetaId: plantillaId, variablesConfig, destinatarios: Array.from(seleccionados) })
-    setConfirmando(false)
-    setSeleccionados(new Set())
+    const cantidad = seleccionados.size
+    try {
+      await crear.mutateAsync({ plantillaMetaId: plantillaId, variablesConfig, destinatarios: Array.from(seleccionados) })
+      setConfirmando(false)
+      setSeleccionados(new Set())
+      avisarExito(`Difusión iniciada para ${cantidad} ${cantidad === 1 ? 'cliente' : 'clientes'}. Puedes seguir su avance en el historial.`)
+    } catch {
+      // Aviso de error global (main.tsx); la selección se conserva para reintentar.
+    }
   }
 
   return (
@@ -292,7 +307,7 @@ function NuevaDifusionCard() {
 // ── Historial ─────────────────────────────────────────────────────────────────
 
 function HistorialCard() {
-  const { data: broadcasts = [] } = useBroadcasts()
+  const { data: broadcasts = [], isError, error, refetch } = useBroadcasts()
   const { data: plantillas = [] } = useWaPlantillasMeta()
   const [expandido, setExpandido] = useState<string | null>(null)
 
@@ -303,7 +318,8 @@ function HistorialCard() {
   return (
     <div className="card">
       <h2 style={{ fontSize: 16, marginBottom: 16 }}>Historial</h2>
-      {broadcasts.length === 0 ? (
+      {isError && <ErrorCarga error={error} onReintentar={() => refetch()} que="el historial" />}
+      {isError ? null : broadcasts.length === 0 ? (
         <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Todavía no has mandado ninguna difusión.</p>
       ) : (
         <div className="table-wrapper">

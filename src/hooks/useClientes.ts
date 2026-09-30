@@ -7,6 +7,8 @@ export interface Cliente {
   nombre?: string
   ciudad?: string
   direccion?: string
+  requiereAsesor?: boolean
+  esBuzonGuias?: boolean
 }
 
 export function useClientes() {

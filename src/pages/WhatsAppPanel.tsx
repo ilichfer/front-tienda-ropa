@@ -5,6 +5,8 @@ import api from '../api/client'
 import { usePedidos } from '../hooks/usePedidos'
 import { useWaPlantillas, useGuardarWaPlantilla, useCambiarActivaWaPlantilla, useBorrarWaPlantilla, type WaPlantilla } from '../hooks/useWaPlantillas'
 import { useWaNotas, useAgregarWaNota, useBorrarWaNota } from '../hooks/useWaNotas'
+import { avisarError, mensajeError } from '../ui/avisos'
+import ErrorCarga from '../ui/ErrorCarga'
 
 const VENTANA_24H_MS = 24 * 60 * 60 * 1000
 
@@ -207,9 +209,9 @@ export default function WhatsAppPanel() {
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
-  const { data: mensajes = [], isLoading } = useQuery<WaMensaje[]>({
+  const { data: mensajes = [], isLoading, isError, error, refetch } = useQuery<WaMensaje[]>({
     queryKey: ['wa-mensajes'],
-    queryFn: () => api.get('/wa-mensajes').then(r => r.data).catch(() => [] as WaMensaje[]),
+    queryFn: () => api.get('/wa-mensajes').then(r => r.data),
     refetchInterval: 10_000,
   })
 
@@ -328,7 +330,8 @@ export default function WhatsAppPanel() {
       queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
       inputRef.current?.focus()
     } catch (e) {
-      console.error('Error enviando mensaje', e)
+      // El texto se queda en la caja para poder reintentar sin volver a escribirlo.
+      avisarError(mensajeError(e, 'enviar el mensaje'))
     }
   }
 
@@ -356,8 +359,8 @@ export default function WhatsAppPanel() {
     try {
       await agregarNotaMutation.mutateAsync({ whatsappFrom: selectedFrom, contenido: notaTexto.trim() })
       setNotaTexto('')
-    } catch (e) {
-      console.error('Error guardando nota', e)
+    } catch {
+      // El aviso de error ya lo muestra el manejador global de mutaciones (main.tsx).
     }
   }
 
@@ -369,7 +372,7 @@ export default function WhatsAppPanel() {
       setNombreInput('')
       queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
     } catch (e) {
-      console.error('Error guardando nombre', e)
+      avisarError(mensajeError(e, 'guardar el nombre'))
     }
   }
 
@@ -383,7 +386,7 @@ export default function WhatsAppPanel() {
       await api.patch('/wa-mensajes/silenciar-bot', { whatsappFrom, silenciado: silenciarAhora })
       queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
     } catch (e) {
-      console.error('Error cambiando estado del bot', e)
+      avisarError(mensajeError(e, silenciarAhora ? 'silenciar el bot' : 'reactivar el bot'))
     }
   }
 
@@ -394,7 +397,7 @@ export default function WhatsAppPanel() {
       await api.patch('/wa-mensajes/marcar-buzon-guias', { whatsappFrom, esBuzonGuias: marcarAhora })
       queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
     } catch (e) {
-      console.error('Error marcando buzón de guías', e)
+      avisarError(mensajeError(e, 'cambiar el buzón de guías'))
     }
   }
 
@@ -411,7 +414,7 @@ export default function WhatsAppPanel() {
       queryClient.invalidateQueries({ queryKey: ['wa-mensajes'] })
       setConfirmarBorrar(null)
     } catch (e) {
-      console.error('Error borrando la conversación', e)
+      avisarError(mensajeError(e, 'borrar la conversación'))
     } finally {
       setBorrando(false)
     }
@@ -424,6 +427,8 @@ export default function WhatsAppPanel() {
       <div className="page-header">
         <h1>WhatsApp</h1>
       </div>
+
+      {isError && <ErrorCarga error={error} onReintentar={() => refetch()} que="los chats" />}
 
       <div
         className="wa-panel"
@@ -463,7 +468,7 @@ export default function WhatsAppPanel() {
           {conversacionesFiltradas.length === 0 ? (
             <div className="empty-state" style={{ padding: 40 }}>
               <div className="empty-icon">💬</div>
-              <p>{busqueda ? 'Sin resultados' : 'No hay mensajes aún'}</p>
+              <p>{busqueda ? 'Sin resultados' : isError ? 'No se pudieron cargar los chats' : 'No hay mensajes aún'}</p>
             </div>
           ) : (
             conversacionesFiltradas.map(conv => (
@@ -975,7 +980,7 @@ export default function WhatsAppPanel() {
                         setReenviarDestino(null)
                         setReenviarBusqueda('')
                       } catch (e) {
-                        console.error('Error reenviando imagen', e)
+                        avisarError(mensajeError(e, 'reenviar la imagen'))
                       } finally {
                         setReenviando(false)
                       }

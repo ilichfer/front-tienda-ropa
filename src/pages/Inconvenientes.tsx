@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
+import ErrorCarga from '../ui/ErrorCarga'
 
 interface Inconveniente {
   id: string
@@ -76,7 +77,7 @@ export default function Inconvenientes() {
   const [modalFoto, setModalFoto] = useState<string | null>(null)
   const [editarNotas, setEditarNotas] = useState<{ id: string; notas: string } | null>(null)
 
-  const { data: inconvenientes = [], isLoading } = useQuery<Inconveniente[]>({
+  const { data: inconvenientes = [], isLoading, isError, error, refetch } = useQuery<Inconveniente[]>({
     queryKey: ['inconvenientes', filtro],
     queryFn: () => api.get('/inconvenientes', { params: filtro ? { estado: filtro } : {} }).then(r => r.data),
     refetchInterval: 15_000,
@@ -106,6 +107,8 @@ export default function Inconvenientes() {
       <div className="page-header">
         <h1>Inconvenientes</h1>
       </div>
+
+      {isError && <ErrorCarga error={error} onReintentar={() => refetch()} que="los inconvenientes" />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
         <div className="card" style={{ padding: 16 }}>
@@ -160,7 +163,7 @@ export default function Inconvenientes() {
             </thead>
             <tbody>
               {inconvenientes.length === 0 ? (
-                <tr><td colSpan={7} className="empty-state">No hay inconvenientes registrados</td></tr>
+                <tr><td colSpan={7} className="empty-state">{isError ? 'No se pudieron cargar los inconvenientes' : 'No hay inconvenientes registrados'}</td></tr>
               ) : inconvenientes.map(inc => (
                 <Fragment key={inc.id}>
                   <tr style={{ cursor: 'pointer' }} onClick={() => setExpandida(expandida === inc.id ? null : inc.id)}>
