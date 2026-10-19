@@ -9,6 +9,7 @@ export interface Cliente {
   direccion?: string
   requiereAsesor?: boolean
   esBuzonGuias?: boolean
+  avisosLive?: boolean
 }
 
 export function useClientes() {

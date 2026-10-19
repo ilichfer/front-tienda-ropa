@@ -162,6 +162,12 @@ function NuevaDifusionCard() {
     setSeleccionados(new Set(clientesFiltrados.map(c => c.whatsapp)))
   }
 
+  // Los que tocaron "🔔 Sí, avisarme" cuando preguntaron por el live.
+  const suscritosLives = clientes.filter(c => c.avisosLive)
+  function seleccionarSuscritosLives() {
+    setSeleccionados(new Set(suscritosLives.map(c => c.whatsapp)))
+  }
+
   async function enviarDifusion() {
     if (!plantillaId || seleccionados.size === 0) return
     const variablesConfig: Record<string, string> = {}
@@ -240,7 +246,7 @@ function NuevaDifusionCard() {
             <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
               Destinatarios ({seleccionados.size} seleccionado{seleccionados.size === 1 ? '' : 's'})
             </p>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
               <input
                 placeholder="Buscar por nombre o número..."
                 value={busqueda}
@@ -248,6 +254,12 @@ function NuevaDifusionCard() {
                 style={{ flex: 1, maxWidth: 300 }}
               />
               <button className="btn btn-sm btn-secondary" onClick={seleccionarTodos}>Seleccionar todos</button>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={seleccionarSuscritosLives}
+                disabled={suscritosLives.length === 0}
+                title="Clientes que pidieron que les avisemos cuando haya live"
+              >🔔 Suscritos a lives ({suscritosLives.length})</button>
               <button className="btn btn-sm btn-secondary" onClick={() => setSeleccionados(new Set())}>Limpiar</button>
             </div>
             <div className="table-wrapper" style={{ maxHeight: 240, overflowY: 'auto' }}>
@@ -258,7 +270,7 @@ function NuevaDifusionCard() {
                       <td style={{ width: 32 }}>
                         <input type="checkbox" checked={seleccionados.has(c.whatsapp)} onChange={() => toggleSeleccionado(c.whatsapp)} onClick={e => e.stopPropagation()} />
                       </td>
-                      <td>{c.nombre || <span style={{ color: 'var(--text-muted)' }}>{c.whatsapp}</span>}</td>
+                      <td>{c.nombre || <span style={{ color: 'var(--text-muted)' }}>{c.whatsapp}</span>}{c.avisosLive && <span title="Suscrito a avisos de lives"> 🔔</span>}</td>
                       <td style={{ color: 'var(--text-muted)' }}>{c.whatsapp}</td>
                     </tr>
                   ))}

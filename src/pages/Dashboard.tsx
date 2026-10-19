@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import api from '../api/client'
 import { usePedidosRealtime } from '../hooks/usePedidos'
 import { useCuentas } from '../hooks/useCuentas'
+import { useResumenAvisos } from '../hooks/useAvisosChat'
 import type { Cliente } from '../hooks/useClientes'
 import ErrorCarga from '../ui/ErrorCarga'
 
@@ -54,16 +55,18 @@ export default function Dashboard() {
     refetchInterval: 15_000,
   })
 
+  const avisos = useResumenAvisos()
   const chatsEsperando = clientes.data?.filter(c => c.requiereAsesor && !c.esBuzonGuias).length
   const prendasSinValor = cuentas.data?.reduce((acc, c) => acc + c.pendientesValor, 0)
   const pagosPorValidar = cuentas.data?.reduce((acc, c) => acc + c.abonosPorValidar, 0)
   const incAbiertos = inconvenientes.data?.filter(i => i.estado === 'RECIBIDO' || i.estado === 'EN_REVISION').length
 
   const tarjetas = [
-    { label: 'Chats esperando un asesor', valor: chatsEsperando, error: clientes.isError, to: '/whatsapp', hint: 'Abrir WhatsApp' },
+    { label: 'Chats esperando un asesor', valor: chatsEsperando, error: clientes.isError, to: '/whatsapp', hint: 'Ver la bandeja' },
     { label: 'Prendas sin valor', valor: prendasSinValor, error: cuentas.isError, to: '/cuentas?filtro=pendientes', hint: 'Revisar en Cuentas' },
     { label: 'Pagos por validar', valor: pagosPorValidar, error: cuentas.isError, to: '/cuentas?filtro=pendientes', hint: 'Revisar en Cuentas' },
     { label: 'Inconvenientes abiertos', valor: incAbiertos, error: inconvenientes.isError, to: '/inconvenientes', hint: 'Ver inconvenientes' },
+    { label: 'Chats antiguos por revisar', valor: avisos.data?.chatsAntiguos, error: avisos.isError, to: '/chats-antiguos', hint: 'Eliminar o conservar' },
   ]
 
   return (

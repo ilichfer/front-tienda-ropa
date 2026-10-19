@@ -7,6 +7,7 @@ import { useWaPlantillas, useGuardarWaPlantilla, useCambiarActivaWaPlantilla, us
 import { useWaNotas, useAgregarWaNota, useBorrarWaNota } from '../hooks/useWaNotas'
 import { avisarError, mensajeError } from '../ui/avisos'
 import ErrorCarga from '../ui/ErrorCarga'
+import { tiempoEspera } from '../hooks/useAvisosChat'
 
 const VENTANA_24H_MS = 24 * 60 * 60 * 1000
 
@@ -21,7 +22,7 @@ interface WaMensaje {
   tipo: string
   direccion: 'ENTRADA' | 'SALIDA'
   createdAt: string
-  cliente?: { nombre: string; requiereAsesor?: boolean; botSilenciado?: boolean; esBuzonGuias?: boolean }
+  cliente?: { nombre: string; requiereAsesor?: boolean; botSilenciado?: boolean; esBuzonGuias?: boolean; asesorSolicitadoEn?: string }
   mediaId?: string
   mediaPath?: string
   mimeType?: string
@@ -205,6 +206,9 @@ export default function WhatsAppPanel() {
   const [reenviarBusqueda, setReenviarBusqueda] = useState('')
   const [reenviarDestino, setReenviarDestino] = useState<string | null>(null)
   const [reenviando, setReenviando] = useState(false)
+  const [filtro, setFiltro] = useState<'todos' | 'esperando'>('todos')
+  // Para que los minutos de espera se actualicen solos, sin esperar a que lleguen mensajes.
+  const [ahora, setAhora] = useState(Date.now())
   const bodyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
@@ -237,20 +241,26 @@ export default function WhatsAppPanel() {
     requiereAsesor: msgs.find(m => m.cliente?.requiereAsesor)?.cliente?.requiereAsesor ?? false,
     botSilenciado: msgs.find(m => m.cliente?.botSilenciado)?.cliente?.botSilenciado ?? false,
     esBuzonGuias: msgs.find(m => m.cliente?.esBuzonGuias)?.cliente?.esBuzonGuias ?? false,
+    esperandoDesde: msgs.find(m => m.cliente?.asesorSolicitadoEn)?.cliente?.asesorSolicitadoEn,
   })).sort((a, b) => {
     if (a.requiereAsesor && !b.requiereAsesor) return -1
     if (!a.requiereAsesor && b.requiereAsesor) return 1
+    // Entre los que esperan asesor, primero el que lleva más tiempo esperando.
+    if (a.requiereAsesor && b.requiereAsesor) return (a.esperandoDesde || '').localeCompare(b.esperandoDesde || '')
     return 0
   })
 
+  const esperandoAsesor = conversaciones.filter(c => c.requiereAsesor && !c.esBuzonGuias)
+  const base = filtro === 'esperando' ? esperandoAsesor : conversaciones
+
   const conversacionesFiltradas = busqueda.trim()
-    ? conversaciones.filter(c => {
+    ? base.filter(c => {
         const nombre = (c.cliente?.nombre || '').toLowerCase()
         const num = c.from.toLowerCase()
         const q = busqueda.toLowerCase()
         return nombre.includes(q) || num.includes(q)
       })
-    : conversaciones
+    : base
 
   const conversacionActual = selectedFrom
     ? [...mensajes.filter(m => m.whatsappFrom === selectedFrom)].reverse()
@@ -296,6 +306,11 @@ export default function WhatsAppPanel() {
     actualizar()
     mq.addEventListener('change', actualizar)
     return () => mq.removeEventListener('change', actualizar)
+  }, [])
+
+  useEffect(() => {
+    const id = setInterval(() => setAhora(Date.now()), 30_000)
+    return () => clearInterval(id)
   }, [])
 
   useEffect(() => {
@@ -435,7 +450,7 @@ export default function WhatsAppPanel() {
         style={{
           display: 'flex',
           flexDirection: isMobile ? 'column' : 'row',
-          height: 'calc(100vh - 140px)',
+          height: isMobile ? 'calc(100dvh - 120px)' : 'calc(100vh - 140px)',
           overflow: 'hidden',
         }}
       >
@@ -453,6 +468,14 @@ export default function WhatsAppPanel() {
             flexShrink: 0,
           }}
         >
+          <div className="wa-filtros">
+            <button className={`wa-filtro ${filtro === 'todos' ? 'activo' : ''}`} onClick={() => setFiltro('todos')}>
+              Todos
+            </button>
+            <button className={`wa-filtro ${filtro === 'esperando' ? 'activo' : ''}`} onClick={() => setFiltro('esperando')}>
+              ⏳ Esperando asesor{esperandoAsesor.length > 0 && <span className="wa-filtro-contador">{esperandoAsesor.length}</span>}
+            </button>
+          </div>
           {/* Search input */}
           <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
             <input
@@ -468,7 +491,8 @@ export default function WhatsAppPanel() {
           {conversacionesFiltradas.length === 0 ? (
             <div className="empty-state" style={{ padding: 40 }}>
               <div className="empty-icon">💬</div>
-              <p>{busqueda ? 'Sin resultados' : isError ? 'No se pudieron cargar los chats' : 'No hay mensajes aún'}</p>
+              <p>{busqueda ? 'Sin resultados' : isError ? 'No se pudieron cargar los chats'
+                : filtro === 'esperando' ? 'Nadie está esperando un asesor 🎉' : 'No hay mensajes aún'}</p>
             </div>
           ) : (
             conversacionesFiltradas.map(conv => (
@@ -497,6 +521,11 @@ export default function WhatsAppPanel() {
                       <span style={{ color: 'var(--text-muted)' }}>{conv.from}</span>
                     )}
                   </div>
+                  {conv.requiereAsesor && conv.esperandoDesde && (
+                    <div className="wa-espera" title="Tiempo que lleva esperando un asesor">
+                      ⏱ Esperando {tiempoEspera(conv.esperandoDesde, ahora)}{conv.botSilenciado ? ' · bot pausado' : ''}
+                    </div>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                     {icono(conv.ultimo?.tipo || '')}
                     {etiqueta(conv.ultimo!).slice(0, 60)}
@@ -588,6 +617,7 @@ export default function WhatsAppPanel() {
                       )}
                       title="Editar nombre"
                     >✏️</button>
+                    <div className="wa-header-acciones">
                     {convActualInfo?.requiereAsesor && (
                       <span
                         title="Este cliente quedó marcado como que necesita atención de un asesor"
@@ -596,7 +626,7 @@ export default function WhatsAppPanel() {
                           background: '#fff3e6', color: '#c2410c', marginLeft: 8, whiteSpace: 'nowrap',
                         }}
                       >
-                        🟠 Requiere asesor
+                        🟠 Requiere asesor{convActualInfo.esperandoDesde ? ` · ${tiempoEspera(convActualInfo.esperandoDesde, ahora)}` : ''}
                       </span>
                     )}
                     <span
@@ -640,6 +670,7 @@ export default function WhatsAppPanel() {
                     >
                       {convActualInfo?.esBuzonGuias ? '📦 Buzón de guías' : '📦 Marcar buzón de guías'}
                     </button>
+                    </div>
                   </>
                 )}
               </div>
